@@ -318,16 +318,17 @@ public:
 
             if (activeScale != nullptr)
             {
-                g.setColour (juce::Colours::black.withAlpha (0.15f));
+                g.setColour (juce::Colours::black.withAlpha (0.2f));
 
-                for (int note = lowestNote; note <= highestNote; ++note)
+                for (int note = 0; note < 128; ++note)
                 {
-                    const int pitchClass = ((note % 12) + 12) % 12;
-                    const int scaleRelative = (pitchClass - rootNote + 12) % 12;
+                    const int pitchClass = note % 12;
+                    const int adjustedPitchClass = (pitchClass - rootNote + 12) % 12;
 
-                    if (!activeScale->contains (scaleRelative))
+                    if (!activeScale->contains (adjustedPitchClass))
                     {
-                        g.fillRect (0.0f, noteToY (note), (float) getWidth(), (float) pixelsPerNote);
+                        const float y = noteToY (note);
+                        g.fillRect (0.0f, y, (float) getWidth(), (float) pixelsPerNote);
                     }
                 }
             }

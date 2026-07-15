@@ -44,6 +44,7 @@ private:
     float lastMouseY = 0.0f;
 
     juce::Colour velocityToColour (int velocity) const;
+    double xToBeat (float screenX) const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollExpressionLane)
 };

@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <tracktion_engine/tracktion_engine.h>
+#include "TheCrateLookAndFeel.h"
 
 namespace te = tracktion::engine;
 
@@ -46,6 +47,8 @@ private:
     juce::ComboBox chordTypeCombo;
 
     te::MidiClip* activeClip = nullptr;
+
+    TheCrateLookAndFeel lookAndFeel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CrateMidiInspectorComponent)
 };

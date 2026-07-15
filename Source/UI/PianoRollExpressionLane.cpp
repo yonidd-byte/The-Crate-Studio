@@ -44,6 +44,13 @@ void PianoRollExpressionLane::setZoom (double ppb, double ppn)
     }
 }
 
+double PianoRollExpressionLane::xToBeat (float screenX) const
+{
+    const float headerW = (float) keyboardWidth;
+    const float contentX = screenX - headerW;
+    return (contentX + horizontalOffset) / pixelsPerBeat;
+}
+
 juce::Colour PianoRollExpressionLane::velocityToColour (int velocity) const
 {
     // Logic Pro gradient: low (green) -> mid (yellow) -> high (red).
@@ -130,26 +137,26 @@ void PianoRollExpressionLane::mouseDrag (const juce::MouseEvent& e)
     if (!isBrushing || activeMidiClip == nullptr || currentMode != Velocity)
         return;
 
-    const float headerW = (float) keyboardWidth;
     const float contentH = (float) getHeight();
-
     const float x0 = lastMouseX;
     const float x1 = e.position.x;
     const float y0 = lastMouseY;
     const float y1 = e.position.y;
-    const float minX = juce::jmin (x0, x1);
-    const float maxX = juce::jmax (x0, x1);
 
-    // Sweep: all notes with X-center in [minX, maxX] get interpolated Y -> velocity.
+    // Convert pixel X positions to beat space.
+    const double minBeat = xToBeat (juce::jmin (x0, x1));
+    const double maxBeat = xToBeat (juce::jmax (x0, x1));
+
+    // Sweep: all notes with center beat in [minBeat, maxBeat] get interpolated Y -> velocity.
     for (auto* note : activeMidiClip->getSequence().getNotes())
     {
-        const float xCenter = (float) ((note->getStartBeat().inBeats() + note->getLengthBeats().inBeats() * 0.5) * pixelsPerBeat) - (float) horizontalOffset + headerW;
+        const double noteCenterBeat = note->getStartBeat().inBeats() + (note->getLengthBeats().inBeats() * 0.5);
 
-        if (xCenter >= minX && xCenter <= maxX)
+        if (noteCenterBeat >= minBeat && noteCenterBeat <= maxBeat)
         {
-            // Linear interpolation: what Y does this X correspond to on the drag line?
-            const float t = (x1 != x0) ? (xCenter - x0) / (x1 - x0) : 0.5f;
-            const float interpolatedY = y0 + t * (y1 - y0);
+            // Linear interpolation factor in beat space.
+            const double t = (maxBeat != minBeat) ? (noteCenterBeat - minBeat) / (maxBeat - minBeat) : 0.5;
+            const float interpolatedY = (float) (y0 + t * (y1 - y0));
 
             // Y coordinate to velocity: contentH (bottom) = 0 vel, top = 127 vel.
             const float normalizedY = juce::jlimit (0.0f, contentH - 4.0f, contentH - interpolatedY);
