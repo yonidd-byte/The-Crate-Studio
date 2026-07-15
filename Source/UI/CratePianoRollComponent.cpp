@@ -367,16 +367,31 @@ public:
 
             if (activeScale != nullptr)
             {
-                g.setColour (juce::Colours::black.withAlpha (0.06f));
-
+                // Highlight scale lanes: root note brighter, in-scale notes subtle.
                 for (int note = 0; note < 128; ++note)
                 {
                     const int pitchClass = note % 12;
                     const int adjustedPitchClass = (pitchClass - rootNote + 12) % 12;
 
-                    if (!activeScale->contains (adjustedPitchClass))
+                    if (activeScale->contains (adjustedPitchClass))
                     {
                         const float y = noteToY (note);
+                        // Root note gets brighter highlight.
+                        if (adjustedPitchClass == 0)
+                        {
+                            g.setColour (juce::Colours::white.withAlpha (0.06f));
+                        }
+                        else
+                        {
+                            g.setColour (juce::Colours::white.withAlpha (0.03f));
+                        }
+                        g.fillRect (0.0f, y, (float) getWidth(), (float) pixelsPerNote);
+                    }
+                    else
+                    {
+                        // Out-of-scale rows stay dimmed (optional, comment out if not needed).
+                        const float y = noteToY (note);
+                        g.setColour (juce::Colours::black.withAlpha (0.06f));
                         g.fillRect (0.0f, y, (float) getWidth(), (float) pixelsPerNote);
                     }
                 }
@@ -464,16 +479,14 @@ public:
                     g.drawRoundedRectangle (bounds.reduced (0.5f), 2.0f, 2.0f);
                 }
 
-                // Note label: draw name if note is large enough.
-                if (bounds.getWidth() > 25.0f && bounds.getHeight() > 10.0f)
-                {
-                    const juce::String noteName = juce::MidiMessage::getMidiNoteName (note->getNoteNumber(), true, true, 4);
-                    g.setColour (juce::Colours::white);
-                    g.setFont (8.0f);
-                    const auto textBounds = juce::Rectangle<int> ((int) bounds.getX() + 2, (int) bounds.getY() + 2,
-                                                                   (int) bounds.getWidth() - 4, (int) bounds.getHeight() - 4);
-                    g.drawText (noteName, textBounds, juce::Justification::centredLeft);
-                }
+                // Note label: always draw name with auto-clipping. Dynamic text contrast.
+                const juce::String noteName = juce::MidiMessage::getMidiNoteName (note->getNoteNumber(), true, true, 4);
+                const auto textColour = noteColour.getPerceivedBrightness() > 0.6f ? juce::Colours::black : juce::Colours::white;
+                g.setColour (textColour);
+                g.setFont (8.0f);
+                const auto textBounds = juce::Rectangle<int> ((int) bounds.getX() + 2, (int) bounds.getY() + 2,
+                                                               (int) bounds.getWidth() - 4, (int) bounds.getHeight() - 4);
+                g.drawText (noteName, textBounds, juce::Justification::centredLeft, true);
             }
         }
 
@@ -621,13 +634,31 @@ public:
                 // NOW so mouseDrag can compute deltas against a fixed origin
                 // rather than accumulating per-event (which would drift). One
                 // Undo transaction for the whole drag, same as resize above.
-                activeMidiClip->edit.getUndoManager().beginNewTransaction ("Move MIDI Note");
+                activeMidiClip->edit.getUndoManager().beginNewTransaction ("Move MIDI Note(s)");
                 isMoving = true;
                 draggedNote = hitNote;
                 dragStartX    = e.position.x;
                 dragStartY    = e.position.y;
                 dragStartBeat = hitNote->getStartBeat().inBeats();
                 dragStartNote = hitNote->getNoteNumber();
+
+                // If the clicked note is part of selectedNotes, store initial state of all selected.
+                if (selectedNotes.contains (hitNote))
+                {
+                    // Store each selected note's initial beat and pitch for group move.
+                    for (auto* note : selectedNotes)
+                    {
+                        selectedNotesInitialState.add ({ note->getStartBeat().inBeats(), note->getNoteNumber() });
+                    }
+                }
+                else
+                {
+                    // Single note move — store only this note.
+                    selectedNotesInitialState.clear();
+                    selectedNotesInitialState.add ({ dragStartBeat, dragStartNote });
+                    selectedNotes.clear();
+                    selectedNotes.add (hitNote);
+                }
             }
 
             return;
@@ -929,14 +960,82 @@ public:
                 }
             }
 
-            // Length preserved — a move changes start + pitch only, not
-            // duration. setStartAndLength() + setNoteNumber() are two separate
-            // TE calls (no single combined API), both in this same gesture's
-            // one Undo transaction.
-            draggedNote->setStartAndLength (tracktion::BeatPosition::fromBeats (newBeat),
-                                            draggedNote->getLengthBeats(),
+            // Multi-note move: apply the same delta to all selected notes.
+            if (selectedNotesInitialState.size() > 1)
+            {
+                // Move all selected notes with the same delta.
+                const double groupDeltaBeat = newBeat - dragStartBeat;
+                const int groupDeltaNote = newNote - dragStartNote;
+
+                for (int i = 0; i < selectedNotes.size() && i < selectedNotesInitialState.size(); ++i)
+                {
+                    auto* note = selectedNotes[i];
+                    const auto& initialState = selectedNotesInitialState[i];
+
+                    double noteBeat = initialState.beat + groupDeltaBeat;
+                    int noteNum = juce::jlimit (0, 127, initialState.noteNumber + groupDeltaNote);
+
+                    // Apply scale snap if enabled (same logic as single note).
+                    if (inspector != nullptr && inspector->isSnapToScaleEnabled())
+                    {
+                        const int rootNote = inspector->getRootNote();
+                        const int scaleType = inspector->getScaleType();
+
+                        static const juce::Array<int> majorIntervals   { 0, 2, 4, 5, 7, 9, 11 };
+                        static const juce::Array<int> minorIntervals   { 0, 2, 3, 5, 7, 8, 10 };
+                        static const juce::Array<int> pentatonicIntervals { 0, 2, 4, 7, 9 };
+                        static const juce::Array<int> bluesIntervals   { 0, 3, 5, 6, 7, 10 };
+
+                        const juce::Array<int>* activeScale = nullptr;
+                        switch (scaleType)
+                        {
+                            case 0: activeScale = &majorIntervals; break;
+                            case 1: activeScale = &minorIntervals; break;
+                            case 2: activeScale = &pentatonicIntervals; break;
+                            case 3: activeScale = &bluesIntervals; break;
+                            case 4: activeScale = nullptr; break;
+                        }
+
+                        if (activeScale != nullptr)
+                        {
+                            const int octave = noteNum / 12;
+                            int bestNote = noteNum;
+                            int bestDist = 128;
+
+                            for (int oct = octave - 1; oct <= octave + 1; ++oct)
+                            {
+                                for (int interval : *activeScale)
+                                {
+                                    const int candidate = oct * 12 + ((rootNote + interval) % 12);
+                                    if (candidate >= 0 && candidate <= 127)
+                                    {
+                                        const int dist = std::abs (candidate - noteNum);
+                                        if (dist < bestDist)
+                                        {
+                                            bestDist = dist;
+                                            bestNote = candidate;
+                                        }
+                                    }
+                                }
+                            }
+                            noteNum = juce::jlimit (0, 127, bestNote);
+                        }
+                    }
+
+                    note->setStartAndLength (tracktion::BeatPosition::fromBeats (noteBeat),
+                                            note->getLengthBeats(),
                                             &undoManager);
-            draggedNote->setNoteNumber (newNote, &undoManager);
+                    note->setNoteNumber (noteNum, &undoManager);
+                }
+            }
+            else
+            {
+                // Single note move.
+                draggedNote->setStartAndLength (tracktion::BeatPosition::fromBeats (newBeat),
+                                                draggedNote->getLengthBeats(),
+                                                &undoManager);
+                draggedNote->setNoteNumber (newNote, &undoManager);
+            }
 
             repaint();
         }
@@ -1061,6 +1160,7 @@ public:
         isResizing = false;
         isMoving = false;
         draggedNote = nullptr;
+        selectedNotesInitialState.clear();
     }
 
 private:
@@ -1151,6 +1251,10 @@ private:
     bool isSelecting = false;
     juce::Rectangle<float> selectionRect;
     juce::Array<te::MidiNote*> selectedNotes;
+
+    // Multi-note drag state: store initial beat/note for each selected note.
+    struct InitialNoteState { double beat; int noteNumber; };
+    juce::Array<InitialNoteState> selectedNotesInitialState;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollGridContent)
 };
