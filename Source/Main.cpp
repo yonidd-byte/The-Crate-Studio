@@ -1,5 +1,6 @@
 #include <JuceHeader.h>
 #include "MainComponent.h"
+#include "UI/TheCrateLookAndFeel.h"
 
 class TheCrateStudioApplication : public juce::JUCEApplication
 {
@@ -12,12 +13,17 @@ public:
 
     void initialise (const juce::String&) override
     {
+        // Must be set before MainWindow constructs — it reads the default LookAndFeel's
+        // background colour at construction time.
+        juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
+
         mainWindow = std::make_unique<MainWindow> (getApplicationName());
     }
 
     void shutdown() override
     {
         mainWindow = nullptr;
+        juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
     }
 
     void systemRequestedQuit() override
@@ -57,6 +63,7 @@ public:
     };
 
 private:
+    TheCrateLookAndFeel lookAndFeel;
     std::unique_ptr<MainWindow> mainWindow;
 };
 

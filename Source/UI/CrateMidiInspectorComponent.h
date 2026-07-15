@@ -1,0 +1,51 @@
+#pragma once
+
+#include <JuceHeader.h>
+#include <tracktion_engine/tracktion_engine.h>
+
+namespace te = tracktion::engine;
+
+class CrateMidiInspectorComponent : public juce::Component
+{
+public:
+    CrateMidiInspectorComponent();
+    ~CrateMidiInspectorComponent() override;
+
+    void setActiveClip (te::MidiClip* clip);
+
+    // Scale/quantize state — read by PianoRollGridContent for dimming + snap.
+    int getRootNote() const noexcept { return rootNoteCombo.getSelectedItemIndex(); }
+    int getScaleType() const noexcept { return scaleTypeCombo.getSelectedItemIndex(); }
+    bool isSnapToScaleEnabled() const noexcept { return snapToScaleToggle.getToggleState(); }
+    bool isStampModeEnabled() const noexcept { return stampModeToggle.getToggleState(); }
+    int getChordType() const noexcept { return chordTypeCombo.getSelectedItemIndex(); }
+
+    void paint (juce::Graphics&) override;
+    void resized() override;
+
+private:
+    // TIME QUANTIZE.
+    juce::ComboBox gridResolutionCombo;
+    juce::Slider strengthSlider;  // 0-100, humanize %
+    juce::Slider swingSlider;     // 0-100
+
+    // SCALE QUANTIZE.
+    juce::ComboBox rootNoteCombo;
+    juce::ComboBox scaleTypeCombo;
+    juce::ToggleButton snapToScaleToggle { "Snap to Scale" };
+
+    // COLLAPSE MODE.
+    juce::ToggleButton collapseEmptyToggle { "Hide Empty Rows" };
+
+    // NOTE PROPERTIES (selected note).
+    juce::Slider velocitySlider;  // 1-127
+    juce::Slider lengthSlider;    // beat duration
+
+    // STAMP TOOL SCAFFOLD.
+    juce::ToggleButton stampModeToggle { "Stamp Mode" };
+    juce::ComboBox chordTypeCombo;
+
+    te::MidiClip* activeClip = nullptr;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CrateMidiInspectorComponent)
+};

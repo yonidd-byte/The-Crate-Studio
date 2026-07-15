@@ -28,6 +28,26 @@ juce_generate_juce_header(TheCrateStudio)
 target_sources(TheCrateStudio PRIVATE
     Source/Main.cpp
     Source/MainComponent.cpp
+    Source/CrateWorkflowManager.cpp
+    Source/UI/TransportBar.cpp
+    Source/UI/TimelineComponent.cpp
+    Source/UI/MixerComponent.cpp
+    Source/UI/MixerStrip.cpp
+    Source/UI/UniversalDeviceChainComponent.cpp
+    Source/UI/SettingsComponent.cpp
+    Source/UI/PluginBrowserComponent.cpp
+    Source/UI/BrowserComponent.cpp
+    Source/UI/CrateMixerLookAndFeel.cpp
+    Source/UI/PluginSlotComponent.cpp
+    Source/UI/PluginWindow.cpp
+    Source/UI/TheCrateLookAndFeel.cpp
+    Source/UI/AutomationLaneComponent.cpp
+    Source/UI/TrackHeaderComponent.cpp
+    Source/UI/ArrangementComponent.cpp
+    Source/UI/TimeRulerComponent.cpp
+    Source/UI/CratePianoRollComponent.cpp
+    Source/UI/CrateMidiInspectorComponent.cpp
+    Source/UI/PianoRollExpressionLane.cpp
 )
 
 target_compile_definitions(TheCrateStudio PRIVATE
