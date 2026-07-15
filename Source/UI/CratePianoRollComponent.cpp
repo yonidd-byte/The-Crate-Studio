@@ -456,6 +456,24 @@ public:
                 g.fillRoundedRectangle (bounds.reduced (0.5f), 2.0f);
                 g.setColour (noteColour.darker (0.6f));
                 g.drawRoundedRectangle (bounds.reduced (0.5f), 2.0f, 1.0f);
+
+                // Selection highlight: white 2px border if in selection.
+                if (selectedNotes.contains (note))
+                {
+                    g.setColour (juce::Colours::white);
+                    g.drawRoundedRectangle (bounds.reduced (0.5f), 2.0f, 2.0f);
+                }
+
+                // Note label: draw name if note is large enough.
+                if (bounds.getWidth() > 25.0f && bounds.getHeight() > 10.0f)
+                {
+                    const juce::String noteName = juce::MidiMessage::getMidiNoteName (note->getNoteNumber(), true, true, 4);
+                    g.setColour (juce::Colours::white);
+                    g.setFont (8.0f);
+                    const auto textBounds = juce::Rectangle<int> ((int) bounds.getX() + 2, (int) bounds.getY() + 2,
+                                                                   (int) bounds.getWidth() - 4, (int) bounds.getHeight() - 4);
+                    g.drawText (noteName, textBounds, juce::Justification::centredLeft);
+                }
             }
         }
 
@@ -1178,6 +1196,16 @@ void CratePianoRollComponent::setInspectorComponent (CrateMidiInspectorComponent
 {
     gridContent->setInspectorComponent (insp);
     keyboard->setInspectorComponent (insp);
+
+    // Wire scale change callback to keyboard repaint.
+    if (insp != nullptr)
+    {
+        insp->onScaleChanged = [this]
+        {
+            if (keyboard != nullptr)
+                keyboard->repaint();
+        };
+    }
 }
 
 void CratePianoRollComponent::setActiveClip (te::MidiClip* clip)

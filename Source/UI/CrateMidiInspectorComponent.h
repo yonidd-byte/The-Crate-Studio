@@ -14,6 +14,9 @@ public:
 
     void setActiveClip (te::MidiClip* clip);
 
+    // Callback fired when scale/root note changes (so keyboard can repaint).
+    std::function<void()> onScaleChanged;
+
     // Scale/quantize state — read by PianoRollGridContent for dimming + snap.
     int getRootNote() const noexcept { return rootNoteCombo.getSelectedItemIndex(); }
     int getScaleType() const noexcept { return scaleTypeCombo.getSelectedItemIndex(); }

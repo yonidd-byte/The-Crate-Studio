@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <tracktion_engine/tracktion_engine.h>
 #include "PianoRollLayout.h"
+#include "TheCrateLookAndFeel.h"
 
 namespace te = tracktion::engine;
 
@@ -45,6 +46,8 @@ private:
 
     juce::Colour velocityToColour (int velocity) const;
     double xToBeat (float screenX) const;
+
+    TheCrateLookAndFeel lookAndFeel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollExpressionLane)
 };

@@ -41,14 +41,17 @@ CrateMidiInspectorComponent::CrateMidiInspectorComponent()
     rootNoteCombo.addItemList ({ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 1);
     rootNoteCombo.setSelectedId (1); // C
     rootNoteCombo.setLookAndFeel (&lookAndFeel);
+    rootNoteCombo.onChange = [this] { if (onScaleChanged) onScaleChanged(); };
     addAndMakeVisible (rootNoteCombo);
 
     scaleTypeCombo.addItemList ({ "Major", "Minor", "Pentatonic", "Blues", "Chromatic" }, 1);
     scaleTypeCombo.setSelectedId (1); // Major
     scaleTypeCombo.setLookAndFeel (&lookAndFeel);
+    scaleTypeCombo.onChange = [this] { if (onScaleChanged) onScaleChanged(); };
     addAndMakeVisible (scaleTypeCombo);
 
     snapToScaleToggle.setLookAndFeel (&lookAndFeel);
+    snapToScaleToggle.onStateChange = [this] { if (onScaleChanged) onScaleChanged(); };
     addAndMakeVisible (snapToScaleToggle);
 
     // COLLAPSE MODE.
@@ -107,6 +110,26 @@ void CrateMidiInspectorComponent::paint (juce::Graphics& g)
         g.setColour (LAF::textDim);
         g.setFont (11.0f);
         g.drawText ("Open clip to edit", getLocalBounds(), juce::Justification::centred);
+    }
+    else
+    {
+        // Draw section headers for visual grouping.
+        auto drawHeader = [&g] (const juce::String& text, int y)
+        {
+            g.setColour (LAF::textDim);
+            g.setFont (9.0f);
+            g.drawText (text, juce::Rectangle<int> (8, y, 100, 12), juce::Justification::topLeft);
+        };
+
+        // Section headers (positioned based on resized() layout).
+        int yPos = 8;
+        drawHeader ("TIME", yPos);
+        yPos += 14 + (22 + 8) * 3 + 12; // grid + 3 controls + spacing + gap
+
+        drawHeader ("SCALE", yPos);
+        yPos += 14 + (22 + 8) * 3 + 12; // scale + 3 controls + spacing + gap
+
+        drawHeader ("TOOLS", yPos);
     }
 }
 

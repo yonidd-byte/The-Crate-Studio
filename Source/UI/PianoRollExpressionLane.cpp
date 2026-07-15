@@ -8,6 +8,7 @@ PianoRollExpressionLane::PianoRollExpressionLane()
 {
     expressionTypeCombo.addItemList ({ "Velocity", "Pitch Bend", "Modulation" }, 1);
     expressionTypeCombo.setSelectedId (1); // Velocity
+    expressionTypeCombo.setLookAndFeel (&lookAndFeel);
     expressionTypeCombo.onChange = [this]
     {
         if (expressionTypeCombo.getSelectedItemIndex() == 0)
@@ -117,7 +118,11 @@ void PianoRollExpressionLane::paint (juce::Graphics& g)
 
 void PianoRollExpressionLane::resized()
 {
-    expressionTypeCombo.setBounds (0, 0, keyboardWidth, getHeight());
+    // Fixed-size dropdown in header: 24px tall, 80px wide, centered vertically.
+    constexpr int comboHeight = 24;
+    constexpr int comboWidth = 80;
+    const int comboY = (getHeight() - comboHeight) / 2;
+    expressionTypeCombo.setBounds (4, comboY, comboWidth, comboHeight);
 }
 
 void PianoRollExpressionLane::mouseDown (const juce::MouseEvent& e)
