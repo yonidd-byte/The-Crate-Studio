@@ -20,12 +20,22 @@ CrateMidiInspectorComponent::CrateMidiInspectorComponent()
     strengthSlider.setLookAndFeel (&lookAndFeel);
     addAndMakeVisible (strengthSlider);
 
+    strengthLabel.attachToComponent (&strengthSlider, true);
+    strengthLabel.setFont (11.0f);
+    strengthLabel.setColour (juce::Label::textColourId, LAF::textDim);
+    addAndMakeVisible (strengthLabel);
+
     swingSlider.setRange (0.0, 100.0);
     swingSlider.setValue (50.0);
     swingSlider.setSliderStyle (juce::Slider::LinearBar);
     swingSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     swingSlider.setLookAndFeel (&lookAndFeel);
     addAndMakeVisible (swingSlider);
+
+    swingLabel.attachToComponent (&swingSlider, true);
+    swingLabel.setFont (11.0f);
+    swingLabel.setColour (juce::Label::textColourId, LAF::textDim);
+    addAndMakeVisible (swingLabel);
 
     // SCALE QUANTIZE.
     rootNoteCombo.addItemList ({ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 1);
@@ -53,12 +63,22 @@ CrateMidiInspectorComponent::CrateMidiInspectorComponent()
     velocitySlider.setLookAndFeel (&lookAndFeel);
     addAndMakeVisible (velocitySlider);
 
+    velocityLabel.attachToComponent (&velocitySlider, true);
+    velocityLabel.setFont (11.0f);
+    velocityLabel.setColour (juce::Label::textColourId, LAF::textDim);
+    addAndMakeVisible (velocityLabel);
+
     lengthSlider.setRange (0.25, 16.0);
     lengthSlider.setValue (1.0);
     lengthSlider.setSliderStyle (juce::Slider::LinearBar);
     lengthSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     lengthSlider.setLookAndFeel (&lookAndFeel);
     addAndMakeVisible (lengthSlider);
+
+    lengthLabel.attachToComponent (&lengthSlider, true);
+    lengthLabel.setFont (11.0f);
+    lengthLabel.setColour (juce::Label::textColourId, LAF::textDim);
+    addAndMakeVisible (lengthLabel);
 
     // STAMP TOOL.
     stampModeToggle.setLookAndFeel (&lookAndFeel);

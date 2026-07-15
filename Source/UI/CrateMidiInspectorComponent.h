@@ -28,7 +28,9 @@ private:
     // TIME QUANTIZE.
     juce::ComboBox gridResolutionCombo;
     juce::Slider strengthSlider;  // 0-100, humanize %
+    juce::Label strengthLabel { {}, "Strength" };
     juce::Slider swingSlider;     // 0-100
+    juce::Label swingLabel { {}, "Swing" };
 
     // SCALE QUANTIZE.
     juce::ComboBox rootNoteCombo;
@@ -40,7 +42,9 @@ private:
 
     // NOTE PROPERTIES (selected note).
     juce::Slider velocitySlider;  // 1-127
+    juce::Label velocityLabel { {}, "Velocity" };
     juce::Slider lengthSlider;    // beat duration
+    juce::Label lengthLabel { {}, "Length" };
 
     // STAMP TOOL SCAFFOLD.
     juce::ToggleButton stampModeToggle { "Stamp Mode" };

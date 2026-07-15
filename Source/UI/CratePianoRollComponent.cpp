@@ -318,7 +318,7 @@ public:
 
             if (activeScale != nullptr)
             {
-                g.setColour (juce::Colours::black.withAlpha (0.2f));
+                g.setColour (juce::Colours::black.withAlpha (0.06f));
 
                 for (int note = 0; note < 128; ++note)
                 {
@@ -408,6 +408,15 @@ public:
                 g.setColour (noteColour.darker (0.6f));
                 g.drawRoundedRectangle (bounds.reduced (0.5f), 2.0f, 1.0f);
             }
+        }
+
+        // Draw marquee selection rectangle if active.
+        if (isSelecting && selectionRect.getWidth() > 0.0f && selectionRect.getHeight() > 0.0f)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.1f));
+            g.fillRect (selectionRect);
+            g.setColour (juce::Colours::white.withAlpha (0.3f));
+            g.drawRect (selectionRect, 1.0f);
         }
     }
 
@@ -507,13 +516,21 @@ public:
 
         auto* hitNote = hitTestNote (e.position);
 
-        if (hitNote != nullptr && e.mods.isRightButtonDown())
+        if (e.mods.isRightButtonDown())
         {
-            // Right-click delete — one Undo step, same beginNewTransaction-
-            // before-the-mutation discipline every other edit in this app uses.
-            activeMidiClip->edit.getUndoManager().beginNewTransaction ("Delete MIDI Note");
-            activeMidiClip->getSequence().removeNote (*hitNote, &activeMidiClip->edit.getUndoManager());
-            repaint();
+            if (hitNote != nullptr)
+            {
+                // Right-click on note: delete it.
+                activeMidiClip->edit.getUndoManager().beginNewTransaction ("Delete MIDI Note");
+                activeMidiClip->getSequence().removeNote (*hitNote, &activeMidiClip->edit.getUndoManager());
+                repaint();
+            }
+            else
+            {
+                // Right-click on empty space: start continuous eraser.
+                activeMidiClip->edit.getUndoManager().beginNewTransaction ("Erase Notes");
+                isErasing = true;
+            }
             return;
         }
 
@@ -549,111 +566,58 @@ public:
             return;
         }
 
-        // Left-click on empty space: add a new note (or chord if Stamp Mode is on).
-        const double rawLocalBeat = (double) e.position.x / pixelsPerBeat;
-        const double snappedBeat  = std::round (rawLocalBeat / 0.25) * 0.25;
-        int rootNoteNumber = yToNote (e.position.y);
-
-        // SCALE-SNAP: clamp to nearest scale degree if enabled.
-        if (inspector != nullptr && inspector->isSnapToScaleEnabled())
-        {
-            const int rootNote = inspector->getRootNote(); // 0-11 (C to B)
-            const int scaleType = inspector->getScaleType();
-
-            static const juce::Array<int> majorIntervals   { 0, 2, 4, 5, 7, 9, 11 };
-            static const juce::Array<int> minorIntervals   { 0, 2, 3, 5, 7, 8, 10 };
-            static const juce::Array<int> pentatonicIntervals { 0, 2, 4, 7, 9 };
-            static const juce::Array<int> bluesIntervals   { 0, 3, 5, 6, 7, 10 };
-
-            const juce::Array<int>* activeScale = nullptr;
-            switch (scaleType)
-            {
-                case 0: activeScale = &majorIntervals; break;
-                case 1: activeScale = &minorIntervals; break;
-                case 2: activeScale = &pentatonicIntervals; break;
-                case 3: activeScale = &bluesIntervals; break;
-                case 4: activeScale = nullptr; break; // Chromatic (no snap)
-            }
-
-            if (activeScale != nullptr)
-            {
-                // Find nearest valid pitch in the scale.
-                int pitchClass = ((rootNoteNumber % 12) + 12) % 12;
-                int scaleIdx = (pitchClass - rootNote + 12) % 12;
-
-                // Find nearest interval in the scale.
-                int nearest = 0;
-                int minDelta = 12;
-                for (int interval : *activeScale)
-                {
-                    int delta = std::abs (interval - scaleIdx);
-                    if (delta < minDelta)
-                    {
-                        minDelta = delta;
-                        nearest = interval;
-                    }
-                }
-
-                // Snap the note.
-                rootNoteNumber = ((rootNote + nearest) % 12) + (rootNoteNumber / 12) * 12;
-                rootNoteNumber = juce::jlimit (0, 127, rootNoteNumber);
-            }
-        }
-
-        // STAMP MODE: chord insertion.
-        if (inspector != nullptr && inspector->isStampModeEnabled())
-        {
-            activeMidiClip->edit.getUndoManager().beginNewTransaction ("Add Chord");
-
-            // Chord intervals (semitone offsets from root).
-            static const juce::Array<int> triadIntervals     { 0, 4, 7 };      // Major triad
-            static const juce::Array<int> seventhIntervals   { 0, 4, 7, 11 };  // Major 7
-            static const juce::Array<int> ninthIntervals     { 0, 4, 7, 11, 14 }; // Major 9 (14 = 2 oct up)
-            static const juce::Array<int> customIntervals    { 0 }; // Placeholder
-
-            const juce::Array<int>* chordIntervals = nullptr;
-            switch (inspector->getChordType())
-            {
-                case 0: chordIntervals = &triadIntervals; break;
-                case 1: chordIntervals = &seventhIntervals; break;
-                case 2: chordIntervals = &ninthIntervals; break;
-                case 3: chordIntervals = &customIntervals; break;
-            }
-
-            if (chordIntervals != nullptr)
-            {
-                for (int interval : *chordIntervals)
-                {
-                    const int chordNoteNumber = juce::jlimit (0, 127, rootNoteNumber + interval);
-                    activeMidiClip->getSequence().addNote (chordNoteNumber,
-                                                           tracktion::BeatPosition::fromBeats (juce::jmax (0.0, snappedBeat)),
-                                                           tracktion::BeatDuration::fromBeats (0.25),
-                                                           100, 0,
-                                                           &activeMidiClip->edit.getUndoManager());
-                }
-            }
-
-            repaint();
-        }
-        else
-        {
-            // Normal single-note insertion.
-            activeMidiClip->edit.getUndoManager().beginNewTransaction ("Add MIDI Note");
-            activeMidiClip->getSequence().addNote (rootNoteNumber,
-                                                   tracktion::BeatPosition::fromBeats (juce::jmax (0.0, snappedBeat)),
-                                                   tracktion::BeatDuration::fromBeats (0.25),
-                                                   100, 0,
-                                                   &activeMidiClip->edit.getUndoManager());
-            repaint();
-        }
+        // Left-click on empty space: start marquee selection.
+        isSelecting = true;
+        dragStartX = e.position.x;
+        dragStartY = e.position.y;
+        selectionRect = { e.position.x, e.position.y, 0.0f, 0.0f };
+        selectedNotes.clear();
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
-        if (draggedNote == nullptr || activeMidiClip == nullptr)
+        if (activeMidiClip == nullptr)
             return;
 
         auto& undoManager = activeMidiClip->edit.getUndoManager();
+
+        // Continuous right-click eraser: hit-test all notes at current position and erase any that intersect.
+        if (isErasing)
+        {
+            auto* hitNote = hitTestNote (e.position);
+            if (hitNote != nullptr)
+            {
+                activeMidiClip->getSequence().removeNote (*hitNote, &undoManager);
+                repaint();
+            }
+            return;
+        }
+
+        // Marquee selection: update selection rectangle and check for intersecting notes.
+        if (isSelecting)
+        {
+            const float minX = juce::jmin (dragStartX, e.position.x);
+            const float maxX = juce::jmax (dragStartX, e.position.x);
+            const float minY = juce::jmin (dragStartY, e.position.y);
+            const float maxY = juce::jmax (dragStartY, e.position.y);
+
+            selectionRect = { minX, minY, maxX - minX, maxY - minY };
+
+            // Check which notes intersect the selection rect.
+            selectedNotes.clear();
+            for (auto* note : activeMidiClip->getSequence().getNotes())
+            {
+                const auto bounds = noteBounds (*note);
+                if (selectionRect.toFloat().intersects (bounds))
+                    selectedNotes.add (note);
+            }
+
+            repaint();
+            return;
+        }
+
+        if (draggedNote == nullptr)
+            return;
 
         if (isResizing)
         {
@@ -694,7 +658,50 @@ public:
             // sub-row jitter as the cursor wanders within a row), applied to
             // the anchor pitch and clamped to the valid 0-127 range.
             const int deltaNote = yToNote (e.position.y) - yToNote (dragStartY);
-            const int newNote   = juce::jlimit (0, 127, dragStartNote + deltaNote); // jlimit(lo, hi, val) — house style, == std::clamp(val, lo, hi)
+            int newNote   = juce::jlimit (0, 127, dragStartNote + deltaNote);
+
+            // SCALE-SNAP during move: enforce snapping if enabled.
+            if (inspector != nullptr && inspector->isSnapToScaleEnabled())
+            {
+                const int rootNote = inspector->getRootNote();
+                const int scaleType = inspector->getScaleType();
+
+                static const juce::Array<int> majorIntervals   { 0, 2, 4, 5, 7, 9, 11 };
+                static const juce::Array<int> minorIntervals   { 0, 2, 3, 5, 7, 8, 10 };
+                static const juce::Array<int> pentatonicIntervals { 0, 2, 4, 7, 9 };
+                static const juce::Array<int> bluesIntervals   { 0, 3, 5, 6, 7, 10 };
+
+                const juce::Array<int>* activeScale = nullptr;
+                switch (scaleType)
+                {
+                    case 0: activeScale = &majorIntervals; break;
+                    case 1: activeScale = &minorIntervals; break;
+                    case 2: activeScale = &pentatonicIntervals; break;
+                    case 3: activeScale = &bluesIntervals; break;
+                    case 4: activeScale = nullptr; break;
+                }
+
+                if (activeScale != nullptr)
+                {
+                    int pitchClass = ((newNote % 12) + 12) % 12;
+                    int scaleIdx = (pitchClass - rootNote + 12) % 12;
+
+                    int nearest = 0;
+                    int minDelta = 12;
+                    for (int interval : *activeScale)
+                    {
+                        int delta = std::abs (interval - scaleIdx);
+                        if (delta < minDelta)
+                        {
+                            minDelta = delta;
+                            nearest = interval;
+                        }
+                    }
+
+                    newNote = ((rootNote + nearest) % 12) + (newNote / 12) * 12;
+                    newNote = juce::jlimit (0, 127, newNote);
+                }
+            }
 
             // Length preserved — a move changes start + pitch only, not
             // duration. setStartAndLength() + setNoteNumber() are two separate
@@ -709,8 +716,117 @@ public:
         }
     }
 
-    void mouseUp (const juce::MouseEvent&) override
+    void mouseUp (const juce::MouseEvent& e) override
     {
+        if (isErasing)
+        {
+            isErasing = false;
+            repaint();
+            return;
+        }
+
+        if (isSelecting)
+        {
+            isSelecting = false;
+
+            // If the selection rect is tiny (just a click), treat it as note insertion instead.
+            if (selectionRect.getWidth() < 3.0f && selectionRect.getHeight() < 3.0f && activeMidiClip != nullptr)
+            {
+                // Click on empty space — add a note.
+                const double rawLocalBeat = (double) e.position.x / pixelsPerBeat;
+                const double snappedBeat  = std::round (rawLocalBeat / 0.25) * 0.25;
+                int rootNoteNumber = yToNote (e.position.y);
+
+                // Apply scale snap if enabled.
+                if (inspector != nullptr && inspector->isSnapToScaleEnabled())
+                {
+                    const int rootNote = inspector->getRootNote();
+                    const int scaleType = inspector->getScaleType();
+
+                    static const juce::Array<int> majorIntervals   { 0, 2, 4, 5, 7, 9, 11 };
+                    static const juce::Array<int> minorIntervals   { 0, 2, 3, 5, 7, 8, 10 };
+                    static const juce::Array<int> pentatonicIntervals { 0, 2, 4, 7, 9 };
+                    static const juce::Array<int> bluesIntervals   { 0, 3, 5, 6, 7, 10 };
+
+                    const juce::Array<int>* activeScale = nullptr;
+                    switch (scaleType)
+                    {
+                        case 0: activeScale = &majorIntervals; break;
+                        case 1: activeScale = &minorIntervals; break;
+                        case 2: activeScale = &pentatonicIntervals; break;
+                        case 3: activeScale = &bluesIntervals; break;
+                        case 4: activeScale = nullptr; break;
+                    }
+
+                    if (activeScale != nullptr)
+                    {
+                        int pitchClass = ((rootNoteNumber % 12) + 12) % 12;
+                        int scaleIdx = (pitchClass - rootNote + 12) % 12;
+
+                        int nearest = 0;
+                        int minDelta = 12;
+                        for (int interval : *activeScale)
+                        {
+                            int delta = std::abs (interval - scaleIdx);
+                            if (delta < minDelta)
+                            {
+                                minDelta = delta;
+                                nearest = interval;
+                            }
+                        }
+
+                        rootNoteNumber = ((rootNote + nearest) % 12) + (rootNoteNumber / 12) * 12;
+                        rootNoteNumber = juce::jlimit (0, 127, rootNoteNumber);
+                    }
+                }
+
+                // Add note or chord.
+                if (inspector != nullptr && inspector->isStampModeEnabled())
+                {
+                    activeMidiClip->edit.getUndoManager().beginNewTransaction ("Add Chord");
+
+                    static const juce::Array<int> triadIntervals     { 0, 4, 7 };
+                    static const juce::Array<int> seventhIntervals   { 0, 4, 7, 11 };
+                    static const juce::Array<int> ninthIntervals     { 0, 4, 7, 11, 14 };
+                    static const juce::Array<int> customIntervals    { 0 };
+
+                    const juce::Array<int>* chordIntervals = nullptr;
+                    switch (inspector->getChordType())
+                    {
+                        case 0: chordIntervals = &triadIntervals; break;
+                        case 1: chordIntervals = &seventhIntervals; break;
+                        case 2: chordIntervals = &ninthIntervals; break;
+                        case 3: chordIntervals = &customIntervals; break;
+                    }
+
+                    if (chordIntervals != nullptr)
+                    {
+                        for (int interval : *chordIntervals)
+                        {
+                            const int chordNoteNumber = juce::jlimit (0, 127, rootNoteNumber + interval);
+                            activeMidiClip->getSequence().addNote (chordNoteNumber,
+                                                                   tracktion::BeatPosition::fromBeats (juce::jmax (0.0, snappedBeat)),
+                                                                   tracktion::BeatDuration::fromBeats (0.25),
+                                                                   100, 0,
+                                                                   &activeMidiClip->edit.getUndoManager());
+                        }
+                    }
+                }
+                else
+                {
+                    activeMidiClip->edit.getUndoManager().beginNewTransaction ("Add MIDI Note");
+                    activeMidiClip->getSequence().addNote (rootNoteNumber,
+                                                           tracktion::BeatPosition::fromBeats (juce::jmax (0.0, snappedBeat)),
+                                                           tracktion::BeatDuration::fromBeats (0.25),
+                                                           100, 0,
+                                                           &activeMidiClip->edit.getUndoManager());
+                }
+            }
+
+            repaint();
+            return;
+        }
+
         // Required, not optional: without this, isResizing/isMoving/draggedNote
         // would stay set after the gesture ends, and the NEXT unrelated
         // mouseDrag (or a stale draggedNote left pointing at a note deleted by
@@ -801,6 +917,14 @@ private:
     int dragStartNote = 0;
     float dragStartX = 0.0f;
     float dragStartY = 0.0f;
+
+    // Right-click eraser state.
+    bool isErasing = false;
+
+    // Marquee selection state.
+    bool isSelecting = false;
+    juce::Rectangle<float> selectionRect;
+    juce::Array<te::MidiNote*> selectedNotes;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollGridContent)
 };
@@ -926,6 +1050,10 @@ void CratePianoRollComponent::layoutContent()
 void CratePianoRollComponent::paint (juce::Graphics& g)
 {
     g.fillAll (pianoRollBackground);
+
+    // Top-left dead zone (above keyboard, left of ruler) — fill with panel colour.
+    g.setColour (LAF::panel);
+    g.fillRect (0, 0, keyboardWidth, rulerHeight);
 
     // Thin accent top-rule so the zone edge is legible against the shell's
     // near-black dividers, matching the other zones' framed look.
