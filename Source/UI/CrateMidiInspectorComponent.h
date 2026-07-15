@@ -20,6 +20,7 @@ public:
     bool isSnapToScaleEnabled() const noexcept { return snapToScaleToggle.getToggleState(); }
     bool isStampModeEnabled() const noexcept { return stampModeToggle.getToggleState(); }
     int getChordType() const noexcept { return chordTypeCombo.getSelectedItemIndex(); }
+    int getGridResolution() const noexcept { return gridResolutionCombo.getSelectedItemIndex(); }
 
     void paint (juce::Graphics&) override;
     void resized() override;

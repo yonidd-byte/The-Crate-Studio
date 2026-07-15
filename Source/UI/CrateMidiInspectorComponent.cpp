@@ -8,15 +8,15 @@ CrateMidiInspectorComponent::CrateMidiInspectorComponent()
     setLookAndFeel (&lookAndFeel);
 
     // TIME QUANTIZE.
-    gridResolutionCombo.addItemList ({ "1/4", "1/8", "1/16", "1/32" }, 1);
-    gridResolutionCombo.setSelectedId (3); // 1/16
+    gridResolutionCombo.addItemList ({ "Free", "1/4", "1/8", "1/16", "1/32" }, 1);
+    gridResolutionCombo.setSelectedId (4); // 1/16 (index 3, id 4)
     gridResolutionCombo.setLookAndFeel (&lookAndFeel);
     addAndMakeVisible (gridResolutionCombo);
 
     strengthSlider.setRange (0.0, 100.0);
     strengthSlider.setValue (50.0);
     strengthSlider.setSliderStyle (juce::Slider::LinearBar);
-    strengthSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    strengthSlider.setTextBoxStyle (juce::Slider::TextBoxRight, true, 40, 20);
     strengthSlider.setLookAndFeel (&lookAndFeel);
     addAndMakeVisible (strengthSlider);
 
@@ -28,7 +28,7 @@ CrateMidiInspectorComponent::CrateMidiInspectorComponent()
     swingSlider.setRange (0.0, 100.0);
     swingSlider.setValue (50.0);
     swingSlider.setSliderStyle (juce::Slider::LinearBar);
-    swingSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    swingSlider.setTextBoxStyle (juce::Slider::TextBoxRight, true, 40, 20);
     swingSlider.setLookAndFeel (&lookAndFeel);
     addAndMakeVisible (swingSlider);
 
@@ -59,7 +59,7 @@ CrateMidiInspectorComponent::CrateMidiInspectorComponent()
     velocitySlider.setRange (1.0, 127.0);
     velocitySlider.setValue (100.0);
     velocitySlider.setSliderStyle (juce::Slider::LinearBar);
-    velocitySlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    velocitySlider.setTextBoxStyle (juce::Slider::TextBoxRight, true, 40, 20);
     velocitySlider.setLookAndFeel (&lookAndFeel);
     addAndMakeVisible (velocitySlider);
 
@@ -71,7 +71,7 @@ CrateMidiInspectorComponent::CrateMidiInspectorComponent()
     lengthSlider.setRange (0.25, 16.0);
     lengthSlider.setValue (1.0);
     lengthSlider.setSliderStyle (juce::Slider::LinearBar);
-    lengthSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    lengthSlider.setTextBoxStyle (juce::Slider::TextBoxRight, true, 40, 20);
     lengthSlider.setLookAndFeel (&lookAndFeel);
     addAndMakeVisible (lengthSlider);
 
