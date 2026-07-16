@@ -270,9 +270,10 @@ class CratePianoRollComponent::PianoRollGridContent : public juce::Component,
                                                        private juce::ValueTree::Listener
 {
 public:
-    PianoRollGridContent() = default; // JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR below
-                                       // deletes the copy ctor, which suppresses the implicit
-                                       // default one too — make_unique<>() needs this explicit
+    PianoRollGridContent()
+    {
+        setWantsKeyboardFocus (true);
+    }
 
     // Defensive teardown: if this component is destroyed while still
     // registered on a clip's sequence (e.g. a project Load happens while the
@@ -479,11 +480,11 @@ public:
                     g.drawRoundedRectangle (bounds.reduced (0.5f), 2.0f, 2.0f);
                 }
 
-                // Note label: always draw name with auto-clipping. Dynamic text contrast.
+                // Note label: always draw name with auto-clipping. Dynamic text contrast. Crisp bold font.
                 const juce::String noteName = juce::MidiMessage::getMidiNoteName (note->getNoteNumber(), true, true, 4);
                 const auto textColour = noteColour.getPerceivedBrightness() > 0.6f ? juce::Colours::black : juce::Colours::white;
                 g.setColour (textColour);
-                g.setFont (8.0f);
+                g.setFont (juce::Font (10.5f, juce::Font::bold));
                 const auto textBounds = juce::Rectangle<int> ((int) bounds.getX() + 2, (int) bounds.getY() + 2,
                                                                (int) bounds.getWidth() - 4, (int) bounds.getHeight() - 4);
                 g.drawText (noteName, textBounds, juce::Justification::centredLeft, true);
@@ -516,6 +517,25 @@ public:
 
         // Deliberate pass-through — see class doc comment above.
         Component::mouseWheelMove (e, wheel);
+    }
+
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
+        {
+            if (activeMidiClip != nullptr && selectedNotes.size() > 0)
+            {
+                activeMidiClip->edit.getUndoManager().beginNewTransaction ("Delete Notes");
+                for (auto* note : selectedNotes)
+                {
+                    activeMidiClip->getSequence().removeNote (*note, &activeMidiClip->edit.getUndoManager());
+                }
+                selectedNotes.clear();
+                repaint();
+                return true;
+            }
+        }
+        return false;
     }
 
 private:
@@ -607,7 +627,9 @@ public:
             }
             else
             {
-                // Right-click on empty space: start continuous eraser.
+                // Right-click on empty space: deselect all notes.
+                selectedNotes.clear();
+                // Right-click drag: start continuous eraser.
                 activeMidiClip->edit.getUndoManager().beginNewTransaction ("Erase Notes");
                 isErasing = true;
             }
@@ -664,18 +686,18 @@ public:
             return;
         }
 
-        // Left-click on empty space: start marquee selection only if Ctrl is held.
-        if (e.mods.isCtrlDown())
-        {
-            isSelecting = true;
-            dragStartX = e.position.x;
-            dragStartY = e.position.y;
-            selectionRect = { e.position.x, e.position.y, 0.0f, 0.0f };
-            selectedNotes.clear();
-            return;
-        }
+        // Left-click on empty space: start marquee selection (Ableton-style, no Ctrl needed).
+        // mouseUp will add a note if rect is tiny (just a click), or keep selection if dragged.
+        isSelecting = true;
+        dragStartX = e.position.x;
+        dragStartY = e.position.y;
+        selectionRect = { e.position.x, e.position.y, 0.0f, 0.0f };
+        selectedNotes.clear();
+        return;
 
-        // Left-click on empty space without Ctrl: add a note immediately.
+        // NOTE: The code below is unreachable due to the return above.
+        // In Ableton-style, clicking on empty space always starts marquee.
+        // If the drag is tiny (< 3px), mouseUp treats it as a note-add instead.
         const double rawLocalBeat = (double) e.position.x / pixelsPerBeat;
         const double snappedBeat  = std::round (rawLocalBeat / 0.25) * 0.25;
         int rootNoteNumber = yToNote (e.position.y);
@@ -1301,13 +1323,15 @@ void CratePianoRollComponent::setInspectorComponent (CrateMidiInspectorComponent
     gridContent->setInspectorComponent (insp);
     keyboard->setInspectorComponent (insp);
 
-    // Wire scale change callback to keyboard repaint.
+    // Wire scale change callback to repaint both keyboard and grid.
     if (insp != nullptr)
     {
         insp->onScaleChanged = [this]
         {
             if (keyboard != nullptr)
                 keyboard->repaint();
+            if (gridContent != nullptr)
+                gridContent->repaint();
         };
     }
 }

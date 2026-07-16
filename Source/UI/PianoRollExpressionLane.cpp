@@ -82,6 +82,10 @@ void PianoRollExpressionLane::paint (juce::Graphics& g)
 {
     g.fillAll (LAF::background);
 
+    // Header area: dark background for ComboBox (left side, matches keyboard width).
+    g.setColour (LAF::panel);
+    g.fillRect (0.0f, 0.0f, (float) keyboardWidth, (float) getHeight());
+
     if (activeMidiClip == nullptr || currentMode != Velocity)
         return;
 
@@ -89,6 +93,9 @@ void PianoRollExpressionLane::paint (juce::Graphics& g)
     const float headerW = (float) keyboardWidth;
     const float contentW = w - headerW;
     const float contentH = (float) getHeight();
+
+    // Clip region: data canvas on the right, no overlap with header.
+    g.reduceClipRegion ((int) headerW, 0, (int) contentW, (int) contentH);
 
     g.setColour (LAF::panelLight);
     g.drawVerticalLine ((int) headerW, 0.0f, contentH); // divider
