@@ -54,28 +54,8 @@ double PianoRollExpressionLane::xToBeat (float screenX) const
 
 juce::Colour PianoRollExpressionLane::velocityToColour (int velocity) const
 {
-    // Logic Pro gradient: low (green) -> mid (yellow) -> high (red).
-    const float norm = velocity / 127.0f; // 0 to 1
-    if (norm < 0.5f)
-    {
-        // Green to Yellow: [0, 0.5]
-        const float t = norm * 2.0f; // 0 to 1 within this range
-        return juce::Colour (
-            (uint8) (255 * t),           // R: 0 -> 255
-            255,                         // G: stays 255
-            0                            // B: 0
-        );
-    }
-    else
-    {
-        // Yellow to Red: [0.5, 1]
-        const float t = (norm - 0.5f) * 2.0f; // 0 to 1 within this range
-        return juce::Colour (
-            255,                         // R: stays 255
-            (uint8) (255 * (1.0f - t)),  // G: 255 -> 0
-            0                            // B: 0
-        );
-    }
+    const float hue = juce::jmap (float(velocity), 1.0f, 127.0f, 0.65f, 0.0f);
+    return juce::Colour::fromHSV (hue, 0.65f, 0.85f, 1.0f);
 }
 
 void PianoRollExpressionLane::paint (juce::Graphics& g)
@@ -125,9 +105,8 @@ void PianoRollExpressionLane::paint (juce::Graphics& g)
 
 void PianoRollExpressionLane::resized()
 {
-    // Fixed-size dropdown in header: 24px tall, 80px wide, centered vertically.
     constexpr int comboHeight = 24;
-    constexpr int comboWidth = 80;
+    const int comboWidth = headerWidth - 8; // fill header width with 4px padding each side
     const int comboY = (getHeight() - comboHeight) / 2;
     expressionTypeCombo.setBounds (4, comboY, comboWidth, comboHeight);
 }
@@ -154,6 +133,7 @@ void PianoRollExpressionLane::mouseDrag (const juce::MouseEvent& e)
     const float x1 = e.position.x;
     const float y0 = lastMouseY;
     const float y1 = e.position.y;
+    const bool isGradientMode = e.mods.isShiftDown(); // Shift = velocity ramp
 
     // Convert pixel X positions to beat space.
     const double minBeat = xToBeat (juce::jmin (x0, x1));
@@ -168,13 +148,28 @@ void PianoRollExpressionLane::mouseDrag (const juce::MouseEvent& e)
         {
             // Linear interpolation factor in beat space.
             const double t = (maxBeat != minBeat) ? (noteCenterBeat - minBeat) / (maxBeat - minBeat) : 0.5;
-            const float interpolatedY = (float) (y0 + t * (y1 - y0));
 
-            // Y coordinate to velocity: contentH (bottom) = 0 vel, top = 127 vel.
-            const float normalizedY = juce::jlimit (0.0f, contentH - 4.0f, contentH - interpolatedY);
-            const int newVelocity = (int) ((normalizedY / (contentH - 4.0f)) * 127.0f);
+            int newVelocity;
+            if (isGradientMode)
+            {
+                // Velocity gradient (Shift+drag): start velocity to end velocity
+                const float startVelNormalized = juce::jlimit (0.0f, contentH - 4.0f, contentH - y0) / (contentH - 4.0f);
+                const float endVelNormalized = juce::jlimit (0.0f, contentH - 4.0f, contentH - y1) / (contentH - 4.0f);
+                const float interpolatedVelNormalized = (float) (startVelNormalized + t * (endVelNormalized - startVelNormalized));
+                newVelocity = (int) (interpolatedVelNormalized * 127.0f);
+            }
+            else
+            {
+                // Normal mode: interpolate Y position across drag path
+                const float interpolatedY = (float) (y0 + t * (y1 - y0));
+                const float normalizedY = juce::jlimit (0.0f, contentH - 4.0f, contentH - interpolatedY);
+                newVelocity = (int) ((normalizedY / (contentH - 4.0f)) * 127.0f);
+            }
 
-            note->setVelocity (juce::jlimit (1, 127, newVelocity), &activeMidiClip->edit.getUndoManager());
+            const int clampedVel = juce::jlimit (1, 127, newVelocity);
+            note->setVelocity (clampedVel, &activeMidiClip->edit.getUndoManager());
+            if (onVelocityChanged)
+                onVelocityChanged (clampedVel);
         }
     }
 

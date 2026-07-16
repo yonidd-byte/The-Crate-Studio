@@ -6,6 +6,7 @@
 namespace te = tracktion::engine;
 
 class PianoRollExpressionLane;
+class PianoRollArticulationLane;
 class CrateMidiInspectorComponent;
 
 /**
@@ -119,7 +120,8 @@ private:
     std::unique_ptr<PianoRollKeyboard> keyboard;
     ScrollAwareViewport viewport;
     std::unique_ptr<PianoRollGridContent> gridContent;
-    std::unique_ptr<PianoRollExpressionLane> expressionLane; // bottom 120px — velocity/CC rendering
+    std::unique_ptr<PianoRollExpressionLane> expressionLane;      // velocity/CC rendering
+    std::unique_ptr<PianoRollArticulationLane> articulationLane;   // articulation markers
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CratePianoRollComponent)
 };

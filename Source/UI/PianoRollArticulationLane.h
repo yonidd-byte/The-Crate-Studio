@@ -3,24 +3,19 @@
 #include <JuceHeader.h>
 #include <tracktion_engine/tracktion_engine.h>
 #include "PianoRollLayout.h"
-#include "TheCrateLookAndFeel.h"
 
 namespace te = tracktion::engine;
 
-class PianoRollExpressionLane : public juce::Component
+class PianoRollArticulationLane : public juce::Component
 {
 public:
-    enum ExpressionMode { Velocity, ContinuousCC };
-
-    PianoRollExpressionLane();
-    ~PianoRollExpressionLane() override;
+    PianoRollArticulationLane();
+    ~PianoRollArticulationLane() override;
 
     void setActiveClip (te::MidiClip* clip);
     void setScrollOffset (int x, int y);
     void setZoom (double pixelsPerBeat, double pixelsPerNote);
     void setKeyboardWidth (int width) noexcept { headerWidth = width; }
-
-    std::function<void(int)> onVelocityChanged;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -30,28 +25,30 @@ public:
     void mouseUp (const juce::MouseEvent& e) override;
 
 private:
-    // LEFT HEADER: ComboBox for expression type.
-    juce::ComboBox expressionTypeCombo;
+    struct ArticulationBlock
+    {
+        double startBeat = 0.0;
+        double endBeat = 1.0;
+        int articulationID = 0; // keyswitch ID (0-127)
+        juce::Colour colour;
+    };
 
-    ExpressionMode currentMode = Velocity;
-
-    // State.
-    int headerWidth = 100; // synced to keyboard width
     te::MidiClip* activeMidiClip = nullptr;
     int horizontalOffset = 0;
     int verticalOffset = 0;
+    int headerWidth = 100;
     double pixelsPerBeat = 60.0;
     double pixelsPerNote = 24.0;
 
-    // Brush state.
-    bool isBrushing = false;
-    float lastMouseX = 0.0f;
-    float lastMouseY = 0.0f;
+    std::vector<ArticulationBlock> articulations;
 
-    juce::Colour velocityToColour (int velocity) const;
+    // Drawing state.
+    bool isDrawing = false;
+    double drawStartBeat = 0.0;
+    double drawEndBeat = 0.0;
+
     double xToBeat (float screenX) const;
+    juce::Colour getArticulationColour (int articulationID) const;
 
-    TheCrateLookAndFeel lookAndFeel;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollExpressionLane)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollArticulationLane)
 };

@@ -29,7 +29,7 @@ namespace te = tracktion::engine;
 namespace CratePianoRoll
 {
     inline constexpr int rulerHeight    = 24;
-    inline constexpr int keyboardWidth  = 48; // PianoRollKeyboard sidebar's fixed width
+    inline constexpr int keyboardWidth  = 100; // PianoRollKeyboard sidebar's fixed width (ComboBox display)
     inline constexpr int numMidiNotes   = 128;
 
     // Horizontal zoom — mirrors CrateArrangement::pixelsPerSecond exactly, just

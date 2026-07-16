@@ -17,6 +17,22 @@ public:
     // Callback fired when scale/root note changes (so keyboard can repaint).
     std::function<void()> onScaleChanged;
 
+    // Broadcasts the FULL scale state (snap on/off, root, resolved intervals)
+    // down to the grid + keyboard. Fired on ANY root/scale-type/snap change.
+    std::function<void(bool snap, int root, juce::Array<int> intervals)> onScaleStateChanged;
+
+    // Maps the scaleTypeCombo index (0-8) to its diatonic-mode semitone intervals.
+    static juce::Array<int> getScaleIntervals (int scaleType);
+
+    // Reads the three UI controls and fires onScaleStateChanged with resolved intervals.
+    void broadcastScaleState();
+
+    // Callbacks fired when sliders change (grid applies changes to selected notes).
+    std::function<void(int)> onVelocitySliderChanged;  // arg: new velocity
+    std::function<void(double)> onLengthSliderChanged; // arg: new length in beats
+    std::function<void(int)> onHumanizeApplied;        // arg: strength 0-100
+    std::function<void(int)> onSwingApplied;           // arg: swing 0-100
+
     // Scale/quantize state — read by PianoRollGridContent for dimming + snap.
     int getRootNote() const noexcept { return rootNoteCombo.getSelectedItemIndex(); }
     int getScaleType() const noexcept { return scaleTypeCombo.getSelectedItemIndex(); }

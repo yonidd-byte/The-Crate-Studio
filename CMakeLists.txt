@@ -48,6 +48,7 @@ target_sources(TheCrateStudio PRIVATE
     Source/UI/CratePianoRollComponent.cpp
     Source/UI/CrateMidiInspectorComponent.cpp
     Source/UI/PianoRollExpressionLane.cpp
+    Source/UI/PianoRollArticulationLane.cpp
 )
 
 target_compile_definitions(TheCrateStudio PRIVATE
