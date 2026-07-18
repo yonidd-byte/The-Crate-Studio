@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\User\Desktop\The Crate Studio\CMakeFiles\9fd2f0997c6bfe93327691e4d7468c3c\TheCrateStudio_resources.rc.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\User\Desktop\The Crate Studio\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode\TheCrateStudio_resources.rc">
+      <Filter>Source Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{F9CD16CD-4044-31AD-9192-D28E6313E986}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{29459C2E-8080-3C3E-8CE9-C0D4BC49F375}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

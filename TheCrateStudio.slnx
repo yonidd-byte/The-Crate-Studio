@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Solution>
+	<Configurations>
+		<BuildType Name="Debug"/>
+		<BuildType Name="Release"/>
+		<BuildType Name="MinSizeRel"/>
+		<BuildType Name="RelWithDebInfo"/>
+		<Platform Name="x64"/>
+	</Configurations>
+	<Project Path="modules/tracktion_engine/examples/AllExamples.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="4520f21a-8dca-3c29-92da-ff8dd1669a0d">
+		<BuildDependency Project="modules/tracktion_engine/examples/Benchmarks/Benchmarks.vcxproj"/>
+		<BuildDependency Project="modules/tracktion_engine/examples/DemoRunner/DemoRunner.vcxproj"/>
+		<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_common.vcxproj"/>
+		<BuildDependency Project="modules/tracktion_engine/examples/TestRunner/TestRunner.vcxproj"/>
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		<Build Solution="Debug|*" Project="false"/>
+		<Build Solution="Release|*" Project="false"/>
+		<Build Solution="MinSizeRel|*" Project="false"/>
+		<Build Solution="RelWithDebInfo|*" Project="false"/>
+	</Project>
+	<Project Path="modules/tracktion_engine/examples/Benchmarks/Benchmarks.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="534d8e4c-1fae-3b0f-9ee1-6c6c37331ebe">
+		<BuildDependency Project="modules/tracktion_engine/examples/Benchmarks/Benchmarks_rc_lib.vcxproj"/>
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="modules/tracktion_engine/examples/Benchmarks/Benchmarks_rc_lib.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="8c7b9118-74ec-3912-b05e-649bac3a6457">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="modules/tracktion_engine/examples/DemoRunner/DemoRunner.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="0ea91c60-3a94-3075-968e-37662470cfd3">
+		<BuildDependency Project="modules/tracktion_engine/examples/DemoRunner/DemoRunnerBinaryData.vcxproj"/>
+		<BuildDependency Project="modules/tracktion_engine/examples/DemoRunner/DemoRunner_rc_lib.vcxproj"/>
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="modules/tracktion_engine/examples/DemoRunner/DemoRunnerBinaryData.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="e5005531-7d40-34c1-bc70-135cf83ef328">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="modules/tracktion_engine/examples/DemoRunner/DemoRunner_rc_lib.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="59c56441-d597-3141-97b8-f24c5ffd07dd">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_common.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="7608f580-3913-3567-9f3b-16756a578fd6">
+		<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_Standalone.vcxproj"/>
+		<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_VST3.vcxproj"/>
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_rc_lib.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="63cd3988-06df-3893-bbec-762de78aab65">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_vst3_helper.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="794f10ef-0c8f-3d0f-8fd6-c0c08dda8f33">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="modules/tracktion_engine/examples/Benchmarks/Modules.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="a173a751-b165-3f7b-bfa4-6ff77c8a8a57">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="modules/tracktion_engine/examples/TestRunner/TestRunner.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="726721eb-621a-3c64-a00c-13087e7d677c">
+		<BuildDependency Project="modules/tracktion_engine/examples/TestRunner/TestRunner_rc_lib.vcxproj"/>
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="modules/tracktion_engine/examples/TestRunner/TestRunner_rc_lib.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="11db4af6-1ae8-3df8-8119-09125d0b3f2c">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="TheCrateStudio.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="0cec8902-2b61-3f52-b10b-3ca112f25c5a">
+		<BuildDependency Project="TheCrateStudio_rc_lib.vcxproj"/>
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="TheCrateStudio_rc_lib.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="39c9cd3a-c65e-3a66-b6a7-806da2ffe9ae">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="modules/tracktion_engine/examples/EngineInPluginDemo/juce_lv2_helper.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="f0f48779-1ee3-3b10-bbb1-f29342e5a74e">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Folder Name="/CMakePredefinedTargets/">
+		<Project Path="ALL_BUILD.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="ee886e02-b8ab-3823-bc7b-3d644a53f061" DefaultStartup="true">
+			<BuildDependency Project="modules/tracktion_engine/examples/Benchmarks/Benchmarks.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/Benchmarks/Benchmarks_rc_lib.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/DemoRunner/DemoRunner.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/DemoRunner/DemoRunnerBinaryData.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/DemoRunner/DemoRunner_rc_lib.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_AAX.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_LV2.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_Standalone.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_Unity.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_VST3.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_rc_lib.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/Benchmarks/Modules.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/TestRunner/TestRunner.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/TestRunner/TestRunner_rc_lib.vcxproj"/>
+			<BuildDependency Project="TheCrateStudio.vcxproj"/>
+			<BuildDependency Project="TheCrateStudio_rc_lib.vcxproj"/>
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/juce_lv2_helper.vcxproj"/>
+		</Project>
+		<Project Path="INSTALL.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="94369276-57c5-3c04-9109-bbcbcbbfad02">
+			<BuildDependency Project="ALL_BUILD.vcxproj"/>
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+			<Build Solution="Debug|*" Project="false"/>
+			<Build Solution="Release|*" Project="false"/>
+			<Build Solution="MinSizeRel|*" Project="false"/>
+			<Build Solution="RelWithDebInfo|*" Project="false"/>
+		</Project>
+		<Project Path="ZERO_CHECK.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="81825696-99e5-375e-8d27-cf1c28f5b760"/>
+	</Folder>
+	<Folder Name="/EngineInPluginDemo/">
+		<Project Path="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="d75a95a2-5f8c-37d5-82f1-84840287ea3e">
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		</Project>
+		<Project Path="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_AAX.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="d60ec12f-c40f-3993-8aed-fdbb25201f4e">
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_rc_lib.vcxproj"/>
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		</Project>
+		<Project Path="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_All.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="d10f8bca-3461-326e-bcbf-239f16284e4b">
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_AAX.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_LV2.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_Standalone.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_Unity.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_VST3.vcxproj"/>
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+			<Build Solution="Debug|*" Project="false"/>
+			<Build Solution="Release|*" Project="false"/>
+			<Build Solution="MinSizeRel|*" Project="false"/>
+			<Build Solution="RelWithDebInfo|*" Project="false"/>
+		</Project>
+		<Project Path="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_LV2.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="6e74fc41-1172-33ce-80c4-faba716ac9be">
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_rc_lib.vcxproj"/>
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/juce_lv2_helper.vcxproj"/>
+		</Project>
+		<Project Path="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_Standalone.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="0e8c3c07-f59d-38b9-bb48-ba5692df49be">
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_rc_lib.vcxproj"/>
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		</Project>
+		<Project Path="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_Unity.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="7d31a755-ac44-3fee-8128-bc529c29ed35">
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_rc_lib.vcxproj"/>
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		</Project>
+		<Project Path="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_VST3.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="53d445c8-f7fa-3d20-9604-09a3006d1767">
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_rc_lib.vcxproj"/>
+			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo_vst3_helper.vcxproj"/>
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		</Project>
+	</Folder>
+</Solution>

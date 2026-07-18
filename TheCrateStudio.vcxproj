@@ -1,0 +1,516 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|x64">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{0CEC8902-2B61-3F52-B10B-3CA112F25C5A}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <Platform>x64</Platform>
+    <ProjectName>TheCrateStudio</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\Debug\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">TheCrateStudio.dir\Debug\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">The Crate Studio</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</GenerateManifest>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\Release\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">TheCrateStudio.dir\Release\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">The Crate Studio</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</GenerateManifest>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\MinSizeRel\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">TheCrateStudio.dir\MinSizeRel\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">The Crate Studio</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">true</GenerateManifest>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\RelWithDebInfo\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">TheCrateStudio.dir\RelWithDebInfo\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">The Crate Studio</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</GenerateManifest>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode;C:\SDKs\ASIOSDK\common;C:\SDKs\ASIOSDK\host;C:\SDKs\ASIOSDK\host\pc;C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\VST3_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lv2;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\serd;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord\src;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sratom;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>Disabled</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level4</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;JUCE_STANDALONE_APPLICATION=1;JUCE_WEB_BROWSER=0;JUCE_USE_CURL=0;JUCE_ASIO=1;JUCE_DIRECTSOUND=1;JUCE_WASAPI=1;JUCE_ALSA=1;JUCE_PLUGINHOST_VST3=1;JUCE_PLUGINHOST_VST=0;TRACKTION_UNIT_TESTS=0;JUCE_MODULE_AVAILABLE_tracktion_engine=1;JUCE_MODULE_AVAILABLE_juce_audio_devices=1;JUCE_MODULE_AVAILABLE_juce_audio_basics=1;JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1;DEBUG=1;_DEBUG=1;JUCE_MODULE_AVAILABLE_juce_core=1;JUCE_MODULE_AVAILABLE_juce_events=1;JUCE_MODULE_AVAILABLE_juce_audio_utils=1;JUCE_MODULE_AVAILABLE_juce_audio_processors=1;JUCE_MODULE_AVAILABLE_juce_gui_extra=1;JUCE_MODULE_AVAILABLE_juce_gui_basics=1;JUCE_MODULE_AVAILABLE_juce_graphics=1;JUCE_MODULE_AVAILABLE_juce_data_structures=1;JUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1;JUCE_MODULE_AVAILABLE_juce_audio_formats=1;JUCE_MODULE_AVAILABLE_juce_dsp=1;JUCE_MODULE_AVAILABLE_juce_osc=1;JUCE_MODULE_AVAILABLE_tracktion_graph=1;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;JUCE_STANDALONE_APPLICATION=1;JUCE_WEB_BROWSER=0;JUCE_USE_CURL=0;JUCE_ASIO=1;JUCE_DIRECTSOUND=1;JUCE_WASAPI=1;JUCE_ALSA=1;JUCE_PLUGINHOST_VST3=1;JUCE_PLUGINHOST_VST=0;TRACKTION_UNIT_TESTS=0;JUCE_MODULE_AVAILABLE_tracktion_engine=1;JUCE_MODULE_AVAILABLE_juce_audio_devices=1;JUCE_MODULE_AVAILABLE_juce_audio_basics=1;JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1;DEBUG=1;_DEBUG=1;JUCE_MODULE_AVAILABLE_juce_core=1;JUCE_MODULE_AVAILABLE_juce_events=1;JUCE_MODULE_AVAILABLE_juce_audio_utils=1;JUCE_MODULE_AVAILABLE_juce_audio_processors=1;JUCE_MODULE_AVAILABLE_juce_gui_extra=1;JUCE_MODULE_AVAILABLE_juce_gui_basics=1;JUCE_MODULE_AVAILABLE_juce_graphics=1;JUCE_MODULE_AVAILABLE_juce_data_structures=1;JUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1;JUCE_MODULE_AVAILABLE_juce_audio_formats=1;JUCE_MODULE_AVAILABLE_juce_dsp=1;JUCE_MODULE_AVAILABLE_juce_osc=1;JUCE_MODULE_AVAILABLE_tracktion_graph=1;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode;C:\SDKs\ASIOSDK\common;C:\SDKs\ASIOSDK\host;C:\SDKs\ASIOSDK\host\pc;C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\VST3_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lv2;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\serd;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord\src;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sratom;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode;C:\SDKs\ASIOSDK\common;C:\SDKs\ASIOSDK\host;C:\SDKs\ASIOSDK\host\pc;C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\VST3_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lv2;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\serd;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord\src;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sratom;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Link>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_engine/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_engine/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_devices/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_devices/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_basics/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_basics/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_core/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_core/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_events/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_events/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_utils/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_utils/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_extra/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_extra/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_basics/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_basics/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_graphics/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_graphics/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_data_structures/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_data_structures/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors_headless/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors_headless/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_formats/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_formats/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_dsp/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_dsp/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_osc/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_osc/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_graph/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_graph/libs/VisualStudio2026/x64/MDd/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <DataExecutionPrevention></DataExecutionPrevention>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
+      <ImportLibrary>C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/Debug/The Crate Studio.lib</ImportLibrary>
+      <LinkErrorReporting></LinkErrorReporting>
+      <ProgramDataBaseFile>C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/Debug/The Crate Studio.pdb</ProgramDataBaseFile>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
+      <SubSystem>Windows</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode;C:\SDKs\ASIOSDK\common;C:\SDKs\ASIOSDK\host;C:\SDKs\ASIOSDK\host\pc;C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\VST3_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lv2;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\serd;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord\src;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sratom;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>Full</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level4</WarningLevel>
+      <WholeProgramOptimization>true</WholeProgramOptimization>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;JUCE_STANDALONE_APPLICATION=1;JUCE_WEB_BROWSER=0;JUCE_USE_CURL=0;JUCE_ASIO=1;JUCE_DIRECTSOUND=1;JUCE_WASAPI=1;JUCE_ALSA=1;JUCE_PLUGINHOST_VST3=1;JUCE_PLUGINHOST_VST=0;TRACKTION_UNIT_TESTS=0;JUCE_MODULE_AVAILABLE_tracktion_engine=1;JUCE_MODULE_AVAILABLE_juce_audio_devices=1;JUCE_MODULE_AVAILABLE_juce_audio_basics=1;JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1;NDEBUG=1;_NDEBUG=1;JUCE_MODULE_AVAILABLE_juce_core=1;JUCE_MODULE_AVAILABLE_juce_events=1;JUCE_MODULE_AVAILABLE_juce_audio_utils=1;JUCE_MODULE_AVAILABLE_juce_audio_processors=1;JUCE_MODULE_AVAILABLE_juce_gui_extra=1;JUCE_MODULE_AVAILABLE_juce_gui_basics=1;JUCE_MODULE_AVAILABLE_juce_graphics=1;JUCE_MODULE_AVAILABLE_juce_data_structures=1;JUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1;JUCE_MODULE_AVAILABLE_juce_audio_formats=1;JUCE_MODULE_AVAILABLE_juce_dsp=1;JUCE_MODULE_AVAILABLE_juce_osc=1;JUCE_MODULE_AVAILABLE_tracktion_graph=1;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;JUCE_STANDALONE_APPLICATION=1;JUCE_WEB_BROWSER=0;JUCE_USE_CURL=0;JUCE_ASIO=1;JUCE_DIRECTSOUND=1;JUCE_WASAPI=1;JUCE_ALSA=1;JUCE_PLUGINHOST_VST3=1;JUCE_PLUGINHOST_VST=0;TRACKTION_UNIT_TESTS=0;JUCE_MODULE_AVAILABLE_tracktion_engine=1;JUCE_MODULE_AVAILABLE_juce_audio_devices=1;JUCE_MODULE_AVAILABLE_juce_audio_basics=1;JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1;NDEBUG=1;_NDEBUG=1;JUCE_MODULE_AVAILABLE_juce_core=1;JUCE_MODULE_AVAILABLE_juce_events=1;JUCE_MODULE_AVAILABLE_juce_audio_utils=1;JUCE_MODULE_AVAILABLE_juce_audio_processors=1;JUCE_MODULE_AVAILABLE_juce_gui_extra=1;JUCE_MODULE_AVAILABLE_juce_gui_basics=1;JUCE_MODULE_AVAILABLE_juce_graphics=1;JUCE_MODULE_AVAILABLE_juce_data_structures=1;JUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1;JUCE_MODULE_AVAILABLE_juce_audio_formats=1;JUCE_MODULE_AVAILABLE_juce_dsp=1;JUCE_MODULE_AVAILABLE_juce_osc=1;JUCE_MODULE_AVAILABLE_tracktion_graph=1;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode;C:\SDKs\ASIOSDK\common;C:\SDKs\ASIOSDK\host;C:\SDKs\ASIOSDK\host\pc;C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\VST3_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lv2;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\serd;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord\src;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sratom;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode;C:\SDKs\ASIOSDK\common;C:\SDKs\ASIOSDK\host;C:\SDKs\ASIOSDK\host\pc;C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\VST3_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lv2;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\serd;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord\src;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sratom;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Link>
+      <AdditionalDependencies>-LTCG;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_engine/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_engine/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_devices/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_devices/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_basics/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_basics/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_core/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_core/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_events/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_events/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_utils/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_utils/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_extra/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_extra/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_basics/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_basics/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_graphics/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_graphics/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_data_structures/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_data_structures/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors_headless/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors_headless/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_formats/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_formats/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_dsp/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_dsp/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_osc/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_osc/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_graph/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_graph/libs/VisualStudio2026/x64/MDd/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <DataExecutionPrevention></DataExecutionPrevention>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
+      <ImportLibrary>C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/Release/The Crate Studio.lib</ImportLibrary>
+      <LinkErrorReporting></LinkErrorReporting>
+      <ProgramDataBaseFile>C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/Release/The Crate Studio.pdb</ProgramDataBaseFile>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
+      <SubSystem>Windows</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode;C:\SDKs\ASIOSDK\common;C:\SDKs\ASIOSDK\host;C:\SDKs\ASIOSDK\host\pc;C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\VST3_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lv2;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\serd;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord\src;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sratom;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>Full</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level4</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;JUCE_STANDALONE_APPLICATION=1;JUCE_WEB_BROWSER=0;JUCE_USE_CURL=0;JUCE_ASIO=1;JUCE_DIRECTSOUND=1;JUCE_WASAPI=1;JUCE_ALSA=1;JUCE_PLUGINHOST_VST3=1;JUCE_PLUGINHOST_VST=0;TRACKTION_UNIT_TESTS=0;JUCE_MODULE_AVAILABLE_tracktion_engine=1;JUCE_MODULE_AVAILABLE_juce_audio_devices=1;JUCE_MODULE_AVAILABLE_juce_audio_basics=1;JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1;NDEBUG=1;_NDEBUG=1;JUCE_MODULE_AVAILABLE_juce_core=1;JUCE_MODULE_AVAILABLE_juce_events=1;JUCE_MODULE_AVAILABLE_juce_audio_utils=1;JUCE_MODULE_AVAILABLE_juce_audio_processors=1;JUCE_MODULE_AVAILABLE_juce_gui_extra=1;JUCE_MODULE_AVAILABLE_juce_gui_basics=1;JUCE_MODULE_AVAILABLE_juce_graphics=1;JUCE_MODULE_AVAILABLE_juce_data_structures=1;JUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1;JUCE_MODULE_AVAILABLE_juce_audio_formats=1;JUCE_MODULE_AVAILABLE_juce_dsp=1;JUCE_MODULE_AVAILABLE_juce_osc=1;JUCE_MODULE_AVAILABLE_tracktion_graph=1;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;JUCE_STANDALONE_APPLICATION=1;JUCE_WEB_BROWSER=0;JUCE_USE_CURL=0;JUCE_ASIO=1;JUCE_DIRECTSOUND=1;JUCE_WASAPI=1;JUCE_ALSA=1;JUCE_PLUGINHOST_VST3=1;JUCE_PLUGINHOST_VST=0;TRACKTION_UNIT_TESTS=0;JUCE_MODULE_AVAILABLE_tracktion_engine=1;JUCE_MODULE_AVAILABLE_juce_audio_devices=1;JUCE_MODULE_AVAILABLE_juce_audio_basics=1;JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1;NDEBUG=1;_NDEBUG=1;JUCE_MODULE_AVAILABLE_juce_core=1;JUCE_MODULE_AVAILABLE_juce_events=1;JUCE_MODULE_AVAILABLE_juce_audio_utils=1;JUCE_MODULE_AVAILABLE_juce_audio_processors=1;JUCE_MODULE_AVAILABLE_juce_gui_extra=1;JUCE_MODULE_AVAILABLE_juce_gui_basics=1;JUCE_MODULE_AVAILABLE_juce_graphics=1;JUCE_MODULE_AVAILABLE_juce_data_structures=1;JUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1;JUCE_MODULE_AVAILABLE_juce_audio_formats=1;JUCE_MODULE_AVAILABLE_juce_dsp=1;JUCE_MODULE_AVAILABLE_juce_osc=1;JUCE_MODULE_AVAILABLE_tracktion_graph=1;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode;C:\SDKs\ASIOSDK\common;C:\SDKs\ASIOSDK\host;C:\SDKs\ASIOSDK\host\pc;C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\VST3_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lv2;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\serd;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord\src;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sratom;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode;C:\SDKs\ASIOSDK\common;C:\SDKs\ASIOSDK\host;C:\SDKs\ASIOSDK\host\pc;C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\VST3_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lv2;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\serd;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord\src;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sratom;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Link>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_engine/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_engine/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_devices/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_devices/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_basics/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_basics/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_core/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_core/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_events/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_events/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_utils/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_utils/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_extra/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_extra/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_basics/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_basics/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_graphics/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_graphics/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_data_structures/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_data_structures/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors_headless/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors_headless/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_formats/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_formats/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_dsp/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_dsp/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_osc/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_osc/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_graph/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_graph/libs/VisualStudio2026/x64/MDd/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <DataExecutionPrevention></DataExecutionPrevention>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
+      <ImportLibrary>C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/MinSizeRel/The Crate Studio.lib</ImportLibrary>
+      <LinkErrorReporting></LinkErrorReporting>
+      <ProgramDataBaseFile>C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/MinSizeRel/The Crate Studio.pdb</ProgramDataBaseFile>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
+      <SubSystem>Windows</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode;C:\SDKs\ASIOSDK\common;C:\SDKs\ASIOSDK\host;C:\SDKs\ASIOSDK\host\pc;C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\VST3_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lv2;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\serd;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord\src;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sratom;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>Full</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level4</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;JUCE_STANDALONE_APPLICATION=1;JUCE_WEB_BROWSER=0;JUCE_USE_CURL=0;JUCE_ASIO=1;JUCE_DIRECTSOUND=1;JUCE_WASAPI=1;JUCE_ALSA=1;JUCE_PLUGINHOST_VST3=1;JUCE_PLUGINHOST_VST=0;TRACKTION_UNIT_TESTS=0;JUCE_MODULE_AVAILABLE_tracktion_engine=1;JUCE_MODULE_AVAILABLE_juce_audio_devices=1;JUCE_MODULE_AVAILABLE_juce_audio_basics=1;JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1;NDEBUG=1;_NDEBUG=1;JUCE_MODULE_AVAILABLE_juce_core=1;JUCE_MODULE_AVAILABLE_juce_events=1;JUCE_MODULE_AVAILABLE_juce_audio_utils=1;JUCE_MODULE_AVAILABLE_juce_audio_processors=1;JUCE_MODULE_AVAILABLE_juce_gui_extra=1;JUCE_MODULE_AVAILABLE_juce_gui_basics=1;JUCE_MODULE_AVAILABLE_juce_graphics=1;JUCE_MODULE_AVAILABLE_juce_data_structures=1;JUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1;JUCE_MODULE_AVAILABLE_juce_audio_formats=1;JUCE_MODULE_AVAILABLE_juce_dsp=1;JUCE_MODULE_AVAILABLE_juce_osc=1;JUCE_MODULE_AVAILABLE_tracktion_graph=1;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;JUCE_STANDALONE_APPLICATION=1;JUCE_WEB_BROWSER=0;JUCE_USE_CURL=0;JUCE_ASIO=1;JUCE_DIRECTSOUND=1;JUCE_WASAPI=1;JUCE_ALSA=1;JUCE_PLUGINHOST_VST3=1;JUCE_PLUGINHOST_VST=0;TRACKTION_UNIT_TESTS=0;JUCE_MODULE_AVAILABLE_tracktion_engine=1;JUCE_MODULE_AVAILABLE_juce_audio_devices=1;JUCE_MODULE_AVAILABLE_juce_audio_basics=1;JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1;NDEBUG=1;_NDEBUG=1;JUCE_MODULE_AVAILABLE_juce_core=1;JUCE_MODULE_AVAILABLE_juce_events=1;JUCE_MODULE_AVAILABLE_juce_audio_utils=1;JUCE_MODULE_AVAILABLE_juce_audio_processors=1;JUCE_MODULE_AVAILABLE_juce_gui_extra=1;JUCE_MODULE_AVAILABLE_juce_gui_basics=1;JUCE_MODULE_AVAILABLE_juce_graphics=1;JUCE_MODULE_AVAILABLE_juce_data_structures=1;JUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1;JUCE_MODULE_AVAILABLE_juce_audio_formats=1;JUCE_MODULE_AVAILABLE_juce_dsp=1;JUCE_MODULE_AVAILABLE_juce_osc=1;JUCE_MODULE_AVAILABLE_tracktion_graph=1;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode;C:\SDKs\ASIOSDK\common;C:\SDKs\ASIOSDK\host;C:\SDKs\ASIOSDK\host\pc;C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\VST3_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lv2;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\serd;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord\src;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sratom;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode;C:\SDKs\ASIOSDK\common;C:\SDKs\ASIOSDK\host;C:\SDKs\ASIOSDK\host\pc;C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\VST3_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lv2;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\serd;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sord\src;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\sratom;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv;C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\format_types\LV2_SDK\lilv\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Link>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_engine/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_engine/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_devices/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_devices/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_basics/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_basics/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_core/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_core/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_events/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_events/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_utils/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_utils/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_extra/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_extra/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_basics/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_gui_basics/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_graphics/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_graphics/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_data_structures/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_data_structures/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors_headless/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_processors_headless/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_formats/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_audio_formats/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_dsp/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_dsp/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_osc/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/JUCE/modules/juce_osc/libs/VisualStudio2026/x64/MDd/$(Configuration);C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_graph/libs/VisualStudio2026/x64/MDd;C:/Users/User/Desktop/The Crate Studio/modules/tracktion_engine/modules/tracktion_graph/libs/VisualStudio2026/x64/MDd/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <DataExecutionPrevention></DataExecutionPrevention>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
+      <ImportLibrary>C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/RelWithDebInfo/The Crate Studio.lib</ImportLibrary>
+      <LinkErrorReporting></LinkErrorReporting>
+      <ProgramDataBaseFile>C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/RelWithDebInfo/The Crate Studio.pdb</ProgramDataBaseFile>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
+      <SubSystem>Windows</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\User\Desktop\The Crate Studio\CMakeFiles\9fd2f0997c6bfe93327691e4d7468c3c\JuceHeader.h.rule">
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Generating TheCrateStudio_artefacts/JuceLibraryCode/JuceHeader.h</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+modules\JUCE\tools\extras\Build\juceaide\juceaide_artefacts\Custom\juceaide.exe header "C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/JuceLibraryCode/Debug/Defs.txt" "C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/JuceLibraryCode/JuceHeader.h"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode\Debug\Defs.txt;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode\JuceHeader.h</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Generating TheCrateStudio_artefacts/JuceLibraryCode/JuceHeader.h</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+modules\JUCE\tools\extras\Build\juceaide\juceaide_artefacts\Custom\juceaide.exe header "C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/JuceLibraryCode/Release/Defs.txt" "C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/JuceLibraryCode/JuceHeader.h"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode\Release\Defs.txt;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode\JuceHeader.h</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Generating TheCrateStudio_artefacts/JuceLibraryCode/JuceHeader.h</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+modules\JUCE\tools\extras\Build\juceaide\juceaide_artefacts\Custom\juceaide.exe header "C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/JuceLibraryCode/MinSizeRel/Defs.txt" "C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/JuceLibraryCode/JuceHeader.h"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode\MinSizeRel\Defs.txt;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode\JuceHeader.h</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Generating TheCrateStudio_artefacts/JuceLibraryCode/JuceHeader.h</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+modules\JUCE\tools\extras\Build\juceaide\juceaide_artefacts\Custom\juceaide.exe header "C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/JuceLibraryCode/RelWithDebInfo/Defs.txt" "C:/Users/User/Desktop/The Crate Studio/TheCrateStudio_artefacts/JuceLibraryCode/JuceHeader.h"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode\RelWithDebInfo\Defs.txt;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode\JuceHeader.h</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\User\Desktop\The Crate Studio\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule C:/Users/User/Desktop/The Crate Studio/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Users/User/Desktop/The Crate Studio" "-BC:/Users/User/Desktop/The Crate Studio" --check-stamp-file "C:/Users/User/Desktop/The Crate Studio/CMakeFiles/generate.stamp"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeCInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Internal\CMakeCLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Linker\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Linker\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\WindowsPaths.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeCCompiler.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeCXXCompiler.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeRCCompiler.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeSystem.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\cmake.verify_globs;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\User\Desktop\The Crate Studio\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule C:/Users/User/Desktop/The Crate Studio/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Users/User/Desktop/The Crate Studio" "-BC:/Users/User/Desktop/The Crate Studio" --check-stamp-file "C:/Users/User/Desktop/The Crate Studio/CMakeFiles/generate.stamp"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeCInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Internal\CMakeCLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Linker\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Linker\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\WindowsPaths.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeCCompiler.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeCXXCompiler.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeRCCompiler.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeSystem.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\cmake.verify_globs;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\User\Desktop\The Crate Studio\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Building Custom Rule C:/Users/User/Desktop/The Crate Studio/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Users/User/Desktop/The Crate Studio" "-BC:/Users/User/Desktop/The Crate Studio" --check-stamp-file "C:/Users/User/Desktop/The Crate Studio/CMakeFiles/generate.stamp"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeCInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Internal\CMakeCLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Linker\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Linker\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\WindowsPaths.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeCCompiler.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeCXXCompiler.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeRCCompiler.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeSystem.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\cmake.verify_globs;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\User\Desktop\The Crate Studio\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Building Custom Rule C:/Users/User/Desktop/The Crate Studio/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Users/User/Desktop/The Crate Studio" "-BC:/Users/User/Desktop/The Crate Studio" --check-stamp-file "C:/Users/User/Desktop/The Crate Studio/CMakeFiles/generate.stamp"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeCInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Internal\CMakeCLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Linker\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Linker\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.4\Modules\Platform\WindowsPaths.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeCCompiler.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeCXXCompiler.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeRCCompiler.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\4.4.0\CMakeSystem.cmake;C:\Users\User\Desktop\The Crate Studio\CMakeFiles\cmake.verify_globs;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\User\Desktop\The Crate Studio\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode\JuceHeader.h" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\Main.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\MainComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\CrateWorkflowManager.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\TransportBar.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\TimelineComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\MixerComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\MixerStrip.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\MasterStrip.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\UniversalDeviceChainComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\SettingsComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\PluginBrowserComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\BrowserComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\CrateMixerLookAndFeel.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\PluginSlotComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\PluginWindow.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\TheCrateLookAndFeel.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\AutomationLaneComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\TrackHeaderComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\ArrangementComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\TimeRulerComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\CratePianoRollComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\CrateMidiInspectorComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\PianoRollExpressionLane.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\PianoRollArticulationLane.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\CrateTrackInspectorComponent.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules\tracktion_engine\tracktion_engine_airwindows_1.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules\tracktion_engine\tracktion_engine_airwindows_2.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules\tracktion_engine\tracktion_engine_airwindows_3.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules\tracktion_engine\tracktion_engine_audio_files.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules\tracktion_engine\tracktion_engine_model_1.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules\tracktion_engine\tracktion_engine_model_2.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules\tracktion_engine\tracktion_engine_playback.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules\tracktion_engine\tracktion_engine_plugins.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules\tracktion_engine\tracktion_engine_timestretch.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules\tracktion_engine\tracktion_engine_utils.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_devices\juce_audio_devices.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_basics\juce_audio_basics.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_core\juce_core.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_core\juce_core_CompilationTime.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_events\juce_events.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_utils\juce_audio_utils.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors\juce_audio_processors.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_gui_extra\juce_gui_extra.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_gui_basics\juce_gui_basics.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_gui_basics\juce_gui_basics_2.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_gui_basics\juce_gui_basics_3.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_gui_basics\juce_gui_basics_4.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_gui_basics\juce_gui_basics_5.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_graphics\juce_graphics.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_graphics\juce_graphics_Harfbuzz.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_graphics\juce_graphics_Sheenbidi.c" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_data_structures\juce_data_structures.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\juce_audio_processors_headless.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\juce_audio_processors_headless_ara.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_processors_headless\juce_audio_processors_headless_lv2_libs.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_audio_formats\juce_audio_formats.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_dsp\juce_dsp.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_osc\juce_osc.cpp" />
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules\tracktion_graph\tracktion_graph.cpp" />
+    <Object Include="C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_rc_lib.dir\$(Configuration)\TheCrateStudio_resources.res" />
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <ProjectReference Include="C:\Users\User\Desktop\The Crate Studio\ZERO_CHECK.vcxproj">
+      <Project>{81825696-99E5-375E-8D27-CF1C28F5B760}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_rc_lib.vcxproj">
+      <Project>{39C9CD3A-C65E-3A66-B6A7-806DA2FFE9AE}</Project>
+      <Name>TheCrateStudio_rc_lib</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
