@@ -21,12 +21,15 @@ namespace
     constexpr float meterFloorDb = -60.0f;
     constexpr float meterRangeDb = 66.0f; // floor to +6 dB headroom — same convention as MixerStrip's meter
 
-    constexpr int interBlockGap         = 4; // daylight between rounded blocks so corners actually read
+    constexpr int addDeviceBlockWidth   = 90; // trailing "+ Add Device" block, end of chain — see ChainRowContent
+    constexpr int interBlockGap         = 0; // "Ableton Tight" (Task 4): zero dead space — devices sit pixel-flush
     constexpr int headerRowHeight       = 20;
-    constexpr int headerBandHeight      = 4 + headerRowHeight; // top margin + button row — shared by resized() and paint()
+    constexpr int headerButtonSize      = 20; // Ableton Tight: every header icon button is this ONE fixed square, no ad-hoc widths
+    constexpr int headerButtonGap       = 4;  // uniform gap between every header button, both sides
 
     constexpr int xyPadSize             = 120;
     constexpr int xyPadComboRowHeight   = 20;
+    constexpr int xyPadComboGap         = 2;  // stacked X/Y combo gap — see XYPadComponent::resized()
     constexpr int xyPadColumnWidth      = 130; // pad + margin
 
     constexpr int miniSliderWidth       = 90;
@@ -39,7 +42,26 @@ namespace
     // same margins as separate literals in two places) is what guarantees the
     // preferred-width formula and the actual laid-out geometry can't drift
     // apart, which is what let the last-turn "+10" guess go wrong.
-    constexpr int blockOuterPadding      = 6; // getLocalBounds().reduced(blockOuterPadding, 4) — both left AND right
+    // Small perimeter inset on all 4 sides — NOT the header-to-grid gap (that
+    // stays permanently zero, per the explicit "Absolute Flush Geometry"
+    // directive). Without this, header buttons sit at literal (0,0) and their
+    // square bounds visually clip past the block's own rounded top corners —
+    // this is the minimum needed to keep every control fully inside the
+    // rounded container.
+    constexpr int blockOuterPadding      = 2;
+
+    // XY Pad / Header Z-order fix: paint()'s blue header band used to be a
+    // hardcoded "4 + headerRowHeight" (= 24px) — a leftover from before
+    // blockOuterPadding existed. resized() actually starts the header row at
+    // y = blockOuterPadding and ends it at blockOuterPadding + headerRowHeight
+    // (= 22px with the current 2px padding), so the band was being painted 2px
+    // TALLER than the real header content. Since the XY pad (a child
+    // component, painted AFTER this band) starts at that same real 22px
+    // boundary, its opaque content covered the band's extra bottom 2px —
+    // reading as the XY pad "clipping into" the header. Deriving this
+    // directly from blockOuterPadding makes the two impossible to drift
+    // apart again.
+    constexpr int headerBandHeight       = blockOuterPadding + headerRowHeight;
     constexpr int xyToGridGap            = 8; // gap between the XY pad and the slider grid
     constexpr int gridRightBreathingRoom = 8; // reserved AFTER the grid's last column, outside the FlexBox entirely
 
@@ -229,9 +251,13 @@ public:
         padBounds = area.removeFromTop (xyPadSize).withWidth (side);
         area.removeFromTop (4);
 
-        auto comboRow = area.removeFromTop (xyPadComboRowHeight);
-        xCombo.setBounds (comboRow.removeFromLeft (comboRow.getWidth() / 2).reduced (1, 0));
-        yCombo.setBounds (comboRow.reduced (1, 0));
+        // Stacked, not side-by-side: splitting the column in half truncated
+        // every parameter name ("Dr...", "We..."). Each combo now gets the
+        // FULL column width, one above the other — matches Ableton's own
+        // XY-pad axis selectors (full-width, stacked).
+        xCombo.setBounds (area.removeFromTop (xyPadComboRowHeight).withWidth (side));
+        area.removeFromTop (xyPadComboGap);
+        yCombo.setBounds (area.removeFromTop (xyPadComboRowHeight).withWidth (side));
     }
 
     void paint (juce::Graphics& g) override
@@ -490,11 +516,18 @@ public:
         bypassButton.setToggleState (plugin.isEnabled(), juce::dontSendNotification);
         bypassButton.onToggle = [this] (bool isOn) { plugin.setEnabled (isOn); };
 
-        // "Show Native UI" (Ableton's wrench) — reuses the exact same TE-native
-        // hosting path CrateWorkflowManager::loadPluginToSelectedTrack() already
-        // uses on first load (showWindowExplicitly(), routed through
-        // CrateUIBehaviour::createPluginWindow() -> PluginWindow). Not a new
-        // DocumentWindow/AudioProcessorEditor-hosting mechanism.
+        // "Show Native UI" (Ableton's wrench) — Ableton Live paradigm: a 3rd-party
+        // VST's real GUI can be enormous (900x700+, freely resizable) — nowhere
+        // near compatible with this block's compact, tightly-constrained width
+        // formula (getPreferredWidth()). Rather than force-fit that into the
+        // bottom dock, this opens the plugin's native editor in its own standard
+        // floating desktop window — the SAME TE-native hosting path
+        // CrateWorkflowManager::loadPluginToSelectedTrack() already uses on
+        // first load (showWindowExplicitly(), routed through
+        // CrateUIBehaviour::createPluginWindow() -> PluginWindow). This block
+        // itself stays the minimal "name + wrench" representation; the auto-
+        // populated param grid alongside it is this app's OWN compact tweak
+        // surface, not an attempt to reproduce the plugin's real UI inline.
         addAndMakeVisible (showNativeUiButton);
         showNativeUiButton.setColour (juce::TextButton::buttonColourId, bypassOffColour);
         showNativeUiButton.setTooltip ("Show native plugin UI");
@@ -589,7 +622,8 @@ public:
         // EXACT required width — every term here is a named constant also used
         // verbatim in resized(), so this can't drift from the real geometry the
         // way the previous "+10" guess did:
-        //   blockOuterPadding on BOTH left and right (getLocalBounds().reduced(blockOuterPadding, 4))
+        //   blockOuterPadding on BOTH left and right (getLocalBounds().reduced(blockOuterPadding, 0)
+        //     — "Ableton Tight", Task 4: this is now 0, content stretches flush)
         //   xyPadColumnWidth + xyToGridGap before the grid starts
         //   numColumns * (miniSliderWidth + gridColumnGap) — the grid's own content width
         //     (gridColumnGap is each FlexItem's own right margin, applied per column
@@ -612,10 +646,15 @@ public:
         // height. The formula below doesn't reference paramSliders/xyPad (which
         // don't exist while folded — rebuildGrid() early-returns in that state),
         // only fixed layout constants, so it's exactly as valid folded as not.
-        const auto xyHeight = xyPadSize + 4 + xyPadComboRowHeight;
+        const auto xyHeight = xyPadSize + 4 + (xyPadComboRowHeight * 2) + xyPadComboGap; // stacked X + Y rows now
         const auto gridHeight = juce::jmin (gridMaxHeight, rowsPerColumn() * miniSliderHeight);
 
-        return headerRowHeight + 6 + juce::jmax (xyHeight, gridHeight) + 8;
+        // Absolute Flush Geometry: the old "+ 6 ... + 8" here were the SAME
+        // top-gap and bottom-margin resized() just had removed — this formula
+        // must report EXACTLY what resized() actually lays out (that's the
+        // documented "can't drift apart" contract these two functions share),
+        // so both terms are gone now too. Zero slack top or bottom.
+        return (blockOuterPadding * 2) + headerRowHeight + juce::jmax (xyHeight, gridHeight);
     }
 
     void mouseUp (const juce::MouseEvent&) override
@@ -651,22 +690,31 @@ public:
             return;
         }
 
-        auto area = getLocalBounds().reduced (blockOuterPadding, 4);
+        // Small 4-side inset (blockOuterPadding) so buttons/grid don't visually
+        // clip the rounded corners — the header-to-grid gap below stays zero.
+        auto area = getLocalBounds().reduced (blockOuterPadding);
 
+        // Ableton Tight: every header button is the SAME fixed square
+        // (headerButtonSize) with the SAME gap (headerButtonGap) on both
+        // sides — the old ad-hoc widths (16/16/28/18/34) read as uneven,
+        // scattered spacing next to Ableton's compact, uniform icon row.
         auto headerRow = area.removeFromTop (headerRowHeight);
-        foldButton.setBounds (headerRow.removeFromLeft (16).reduced (0, 2));
-        headerRow.removeFromLeft (4);
-        bypassButton.setBounds (headerRow.removeFromLeft (16).reduced (2));
-        headerRow.removeFromLeft (4);
-        showNativeUiButton.setBounds (headerRow.removeFromLeft (28).reduced (0, 2));
-        headerRow.removeFromLeft (4);
-        deleteButton.setBounds (headerRow.removeFromRight (18).reduced (0, 2));
-        headerRow.removeFromRight (4);
-        configureButton.setBounds (headerRow.removeFromRight (34).reduced (0, 2));
-        headerRow.removeFromRight (4);
+        foldButton.setBounds (headerRow.removeFromLeft (headerButtonSize).reduced (0, 2));
+        headerRow.removeFromLeft (headerButtonGap);
+        bypassButton.setBounds (headerRow.removeFromLeft (headerButtonSize).reduced (3));
+        headerRow.removeFromLeft (headerButtonGap);
+        showNativeUiButton.setBounds (headerRow.removeFromLeft (headerButtonSize).reduced (0, 2));
+        headerRow.removeFromLeft (headerButtonGap);
+        deleteButton.setBounds (headerRow.removeFromRight (headerButtonSize).reduced (0, 2));
+        headerRow.removeFromRight (headerButtonGap);
+        configureButton.setBounds (headerRow.removeFromRight (headerButtonSize).reduced (0, 2));
+        headerRow.removeFromRight (headerButtonGap);
         nameLabel.setBounds (headerRow);
 
-        area.removeFromTop (6);
+        // Absolute Flush Geometry (override of the earlier judgment call):
+        // ZERO gap between the header row and the parameter grid — the dark
+        // grey param area touches the header band directly, Ableton
+        // zero-padding standard. No area.removeFromTop() here at all.
 
         if (xyPad != nullptr)
             xyPad->setBounds (area.removeFromLeft (xyPadColumnWidth));
@@ -1013,8 +1061,8 @@ private:
     juce::TextButton showNativeUiButton { "UI" }; // plain ASCII label, not a wrench glyph — a raw
                                                    // non-ASCII source literal is exactly what caused
                                                    // the mangled-text bug fixed earlier this project
-    juce::TextButton configureButton { "Cfg" };
-    juce::TextButton deleteButton { "Del" };
+    juce::TextButton configureButton { "C" };
+    juce::TextButton deleteButton { "X" };
 
     std::unique_ptr<XYPadComponent> xyPad;
     std::vector<std::unique_ptr<MiniParamSlider>> paramSliders;
@@ -1034,13 +1082,20 @@ private:
 class UniversalDeviceChainComponent::ChainRowContent : public juce::Component
 {
 public:
-    // Declared explicitly: JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR below
-    // declares a deleted copy constructor, and any user-declared constructor
-    // (deleted or not) suppresses the implicit default constructor — without this,
-    // make_unique<ChainRowContent>() (no args) fails to compile.
-    ChainRowContent() = default;
+    ChainRowContent()
+    {
+        // Spatial optimization (Task 4): "+ Add Device" now lives HERE — a
+        // trailing block at the END of the horizontal chain, taking the FULL
+        // row height like every DeviceBlock, not a fixed top toolbar stealing
+        // height from every plugin's UI. Style matches a folded DeviceBlock's
+        // vertical-sliver language (dim button, minimal chrome) so it reads as
+        // "one more slot in the rail" rather than a separate global control.
+        addDeviceButton.setColour (juce::TextButton::buttonColourId, bypassOffColour);
+        addDeviceButton.onClick = [this] { if (onAddDeviceClicked) onAddDeviceClicked(); };
+        addAndMakeVisible (addDeviceButton);
+    }
 
-    void rebuild (te::AudioTrack* track, te::Plugin* pluginToFocus)
+    void rebuild (te::Track* track, te::Plugin* pluginToFocus)
     {
         blocks.clear();
 
@@ -1081,6 +1136,11 @@ public:
 
     std::function<void (te::Plugin*)> onBlockSelected;
 
+    /** Fires when the trailing "+ Add Device" block is clicked — wired by
+        UniversalDeviceChainComponent to its own showInstrumentMenu() (this
+        class has no edit/workflow access of its own to build that menu itself). */
+    std::function<void()> onAddDeviceClicked;
+
     // Fires whenever relayout() runs — bubbles up to UniversalDeviceChainComponent
     // so a fold/unfold click (which only otherwise triggers THIS component's own
     // internal relayout) can also re-check whether the OUTER zone's height
@@ -1095,7 +1155,7 @@ public:
         int total = 0;
         for (auto& b : blocks)
             total += b->getPreferredWidth() + interBlockGap;
-        return total;
+        return total + addDeviceBlockWidth + interBlockGap; // trailing Add Device block
     }
 
     // All blocks share one row height (folded ones just have empty space below
@@ -1111,17 +1171,17 @@ public:
 
     void resized() override
     {
-        // Every block shares THIS row's height (getHeight()), not its own
-        // individual getPreferredHeight() — required for the vertical-sliver
-        // fold to actually span the row instead of being a short rectangle
-        // floating next to a taller unfolded sibling, and it's what makes a
-        // device rail read as one clean strip (Ableton: all devices in a chain
-        // line up top AND bottom, regardless of how much each one needs).
-        // This used to cause dead space when the OUTER zone (MainComponent's
-        // old fixed-260px allocation) was taller than the row's real content —
-        // that's fixed now at the source (getPreferredContentHeight()), so
-        // getHeight() here is already exactly what the tallest block needs,
-        // not an arbitrary excess.
+        // Zero Dead Space Law: every block shares THIS row's height
+        // (getHeight()), not its own individual getPreferredHeight() —
+        // required for the vertical-sliver fold to actually span the row
+        // instead of being a short rectangle floating next to a taller
+        // unfolded sibling, and it's what makes a device rail read as one
+        // clean strip (Ableton: all devices in a chain line up top AND
+        // bottom, regardless of how much each one needs). getHeight() itself
+        // is stretched to at least the viewport's visible height in
+        // relayout(), above, so this row — and therefore every block in it —
+        // fills the entire Device Chain strip with no exposed background
+        // beneath a shorter card.
         int x = 0;
         for (auto& b : blocks)
         {
@@ -1129,6 +1189,10 @@ public:
             b->setBounds (x, 0, w, getHeight());
             x += w + interBlockGap; // rounded corners need daylight between blocks to actually read
         }
+
+        // Trailing "+ Add Device" block — same FULL row height as every
+        // DeviceBlock (Task 4: no top-margin-crushing global button any more).
+        addDeviceButton.setBounds (x, 0, addDeviceBlockWidth, getHeight());
     }
 
     void paint (juce::Graphics& g) override
@@ -1137,16 +1201,28 @@ public:
 
         if (blocks.empty())
         {
+            // Leaves the trailing Add Device block's own column alone —
+            // it's always present now, even with zero real devices.
+            auto textArea = getLocalBounds().withTrimmedRight (addDeviceBlockWidth + interBlockGap);
             g.setColour (LAF::textDim);
             g.setFont (juce::FontOptions (14.0f));
             g.drawText ("No devices - select a track with a loaded plugin",
-                         getLocalBounds(), juce::Justification::centred);
+                         textArea, juce::Justification::centred);
         }
     }
 
 private:
     void relayout()
     {
+        // Zero Dead Space Law: height stretches to AT LEAST minHeight (the
+        // viewport's visible height), same as width does to minWidth — so
+        // every DeviceBlock shares a row height that fills the whole visible
+        // Device Chain strip, Ableton-style (every device card is the same
+        // tall slot, top AND bottom, regardless of what its own content
+        // needs), rather than leaving the strip's background exposed below a
+        // shorter card. ChainRowContent::resized() below already hands every
+        // block THIS component's own getHeight(), so stretching it here is
+        // all that's needed — no per-block change required.
         setSize (juce::jmax (preferredWidth(), minWidth), juce::jmax (preferredHeight(), minHeight));
         resized();
 
@@ -1155,6 +1231,7 @@ private:
     }
 
     std::vector<std::unique_ptr<DeviceBlock>> blocks;
+    juce::TextButton addDeviceButton { "+ Add Device" };
     int minWidth = 0;
     int minHeight = 0;
 
@@ -1168,6 +1245,11 @@ UniversalDeviceChainComponent::UniversalDeviceChainComponent (te::Edit& editToSh
     content = std::make_unique<ChainRowContent>();
     content->onBlockSelected = [this] (te::Plugin* p) { focusPlugin (currentTrack.get(), p); };
     content->onContentSizeChanged = [this] { notifyIfPreferredHeightChanged(); };
+
+    // Task 4: "+ Add Device" moved here from a top toolbar — it's now the
+    // trailing block at the end of the chain (see ChainRowContent), so this
+    // class just supplies the actual menu logic when it's clicked.
+    content->onAddDeviceClicked = [this] { showInstrumentMenu(); };
 
     viewport.setViewedComponent (content.get(), false);
     viewport.setScrollBarsShown (false, true); // horizontal only
@@ -1188,27 +1270,39 @@ UniversalDeviceChainComponent::UniversalDeviceChainComponent (te::Edit& editToSh
 
 UniversalDeviceChainComponent::~UniversalDeviceChainComponent()
 {
-    if (currentTrack != nullptr)
-        currentTrack->state.removeListener (this);
+    if (listenedPluginListState.isValid())
+        listenedPluginListState.removeListener (this);
 }
 
-void UniversalDeviceChainComponent::setCurrentTrack (te::AudioTrack* newTrack)
+juce::ValueTree UniversalDeviceChainComponent::pluginListStateFor (te::Edit& e, te::Track* track)
+{
+    if (track == nullptr)
+        return {};
+
+    if (track == e.getMasterTrack())
+        return e.getMasterPluginList().state;
+
+    return track->state;
+}
+
+void UniversalDeviceChainComponent::setCurrentTrack (te::Track* newTrack)
 {
     if (currentTrack.get() == newTrack)
         return;
 
-    if (currentTrack != nullptr)
-        currentTrack->state.removeListener (this);
+    if (listenedPluginListState.isValid())
+        listenedPluginListState.removeListener (this);
 
     currentTrack = newTrack;
+    listenedPluginListState = pluginListStateFor (edit, newTrack);
 
-    if (currentTrack != nullptr)
-        currentTrack->state.addListener (this);
+    if (listenedPluginListState.isValid())
+        listenedPluginListState.addListener (this);
 }
 
 void UniversalDeviceChainComponent::valueTreeChildAdded (juce::ValueTree& parentTree, juce::ValueTree& childTree)
 {
-    if (currentTrack == nullptr || parentTree != currentTrack->state || ! childTree.hasType (te::IDs::PLUGIN))
+    if (currentTrack == nullptr || parentTree != listenedPluginListState || ! childTree.hasType (te::IDs::PLUGIN))
         return;
 
     // Deferred, not called inline: this fires synchronously from wherever the
@@ -1229,7 +1323,7 @@ void UniversalDeviceChainComponent::valueTreeChildAdded (juce::ValueTree& parent
 
 void UniversalDeviceChainComponent::valueTreeChildRemoved (juce::ValueTree& parentTree, juce::ValueTree& childTree, int)
 {
-    if (currentTrack == nullptr || parentTree != currentTrack->state || ! childTree.hasType (te::IDs::PLUGIN))
+    if (currentTrack == nullptr || parentTree != listenedPluginListState || ! childTree.hasType (te::IDs::PLUGIN))
         return;
 
     // If the removed plugin was the focused one (e.g. deleted via the Device
@@ -1248,7 +1342,7 @@ void UniversalDeviceChainComponent::valueTreeChildRemoved (juce::ValueTree& pare
     });
 }
 
-void UniversalDeviceChainComponent::showTrack (te::AudioTrack* trackToShow)
+void UniversalDeviceChainComponent::showTrack (te::Track* trackToShow)
 {
     if (currentTrack.get() == trackToShow)
         return;
@@ -1275,7 +1369,7 @@ void UniversalDeviceChainComponent::refreshCurrentTrack()
     rebuildBlocks();
 }
 
-void UniversalDeviceChainComponent::focusPlugin (te::AudioTrack* pluginOwner, te::Plugin* pluginToFocus)
+void UniversalDeviceChainComponent::focusPlugin (te::Track* pluginOwner, te::Plugin* pluginToFocus)
 {
     if (pluginToFocus == nullptr)
         return;
@@ -1311,6 +1405,10 @@ void UniversalDeviceChainComponent::layoutContent()
     const int visibleW = viewport.getMaximumVisibleWidth();
     const int visibleH = viewport.getMaximumVisibleHeight();
 
+    // Zero Dead Space Law (Lead Architect directive): every DeviceBlock and
+    // the trailing "+ Add Device" block stretch to fill the FULL visible
+    // height of the Device Chain strip — see ChainRowContent::relayout()'s
+    // comment.
     content->setMinWidth (visibleW);
     content->setMinHeight (visibleH);
     content->setSize (juce::jmax (content->preferredWidth(), visibleW),
@@ -1411,12 +1509,80 @@ void UniversalDeviceChainComponent::itemDropped (const SourceDetails& details)
     }
 }
 
+void UniversalDeviceChainComponent::showInstrumentMenu()
+{
+    if (currentTrack == nullptr)
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+            "No Track Selected",
+            "Select a track first, then load an instrument — there's currently "
+            "no target track for the Device Chain.");
+        return;
+    }
+
+    // Ableton Live model: no OS file browser. The engine already knows every
+    // scanned plugin (edit.engine.getPluginManager().knownPluginList — the
+    // exact same list the Browser/PluginBrowserComponent already read), so
+    // this button is just a filtered, instant PopupMenu over it — no disk
+    // navigation, no file paths, no scanning-on-demand.
+    const auto& knownPluginList = edit.engine.getPluginManager().knownPluginList;
+    const auto allTypes = knownPluginList.getTypes();
+
+    // menuIdToDescription maps PopupMenu item IDs (1-based, PopupMenu reserves
+    // 0 for "nothing selected") back to the actual juce::PluginDescription —
+    // the menu itself can only carry a String + int, not a full description.
+    // Master is a mastering/effects bus — it can NEVER host an instrument,
+    // so its "+ Add Device" lists effects instead of the usual instrument-only
+    // filter (see loadPluginOntoTrack()'s matching guard, which would reject
+    // every single pick if this stayed instrument-only for Master).
+    const bool isMasterTrack = (currentTrack.get() == edit.getMasterTrack());
+
+    std::vector<juce::PluginDescription> menuIdToDescription;
+    juce::PopupMenu menu;
+
+    for (const auto& desc : allTypes)
+    {
+        // ONLY synths/instruments on this button — this is the "load an
+        // instrument" entry point specifically (Ableton's own "+" on a MIDI
+        // track's device chain does exactly this, never lists FX here) —
+        // except on Master, where it's the exact opposite (effects only).
+        if (desc.isInstrument == isMasterTrack)
+            continue;
+
+        menuIdToDescription.push_back (desc);
+        menu.addItem ((int) menuIdToDescription.size(), desc.name);
+    }
+
+    if (menuIdToDescription.empty())
+    {
+        menu.addItem (-1, isMasterTrack ? "No effects found - scan plugins first"
+                                        : "No instruments found - scan plugins first", false);
+    }
+
+    menu.showMenuAsync (juce::PopupMenu::Options(),
+        [this, menuIdToDescription] (int result)
+    {
+        if (result <= 0 || (size_t) result > menuIdToDescription.size())
+            return; // cancelled, or the disabled "none found" placeholder
+
+        if (currentTrack == nullptr)
+            return; // track selection could have changed while the menu was open
+
+        const auto& chosenDesc = menuIdToDescription[(size_t) result - 1];
+
+        // Same instantiate+insert pipeline every other load path in this app
+        // already funnels through (undo transaction, 256-plugin-limit fix,
+        // track's own ValueTree PLUGIN-child-added notification that rebuilds
+        // this chain automatically) — nothing new to instantiate by hand here.
+        workflow.loadPluginOntoTrack (chosenDesc, *currentTrack, -1);
+    });
+}
+
 void UniversalDeviceChainComponent::resized()
 {
-    // Viewport now gets the EXACT full local bounds — zero .reduced()/
-    // removeFromBottom() anywhere. The divider moved to paintOverChildren()
-    // specifically so it no longer needs the viewport's area carved down to
-    // stay visible.
+    // Task 4 (Vertical Real Estate): no more top toolbar stealing height from
+    // every plugin's UI — "+ Add Device" is a trailing block INSIDE the chain
+    // now (see ChainRowContent), so the viewport gets the FULL bounds here.
     viewport.setBounds (getLocalBounds());
     layoutContent();
 }

@@ -7,6 +7,8 @@
 
 namespace te = tracktion::engine;
 
+class MasterStrip;
+
 /**
     Hybrid Mixer — horizontal row of MixerStrip, one per te::AudioTrack in the
     active te::Edit. The Center Zone's "Mixer" half of the Arrangement/Mixer
@@ -41,6 +43,17 @@ public:
         focus that device. */
     std::function<void (te::AudioTrack*, te::Plugin*)> onPluginSlotSelected;
 
+    /** Fires when the pinned MasterStrip is clicked — MainComponent pushes
+        edit->getMasterTrack() into the Universal Device Chain in response, the
+        same "select this track -> show its chain" gesture a real track gives. */
+    std::function<void()> onMasterSelected;
+
+    /** Fires when an insert slot in the pinned MasterStrip's own rack is
+        clicked — MainComponent focuses that exact mastering plugin in the
+        Universal Device Chain, same as onPluginSlotSelected for a real
+        track's inserts. */
+    std::function<void (te::Plugin*)> onMasterInsertSelected;
+
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -59,6 +72,12 @@ private:
 
     juce::Viewport viewport;
     std::unique_ptr<StripRowContent> content;
+
+    // Master — genuinely PINNED to the far right: a fixed dock OUTSIDE the
+    // scrolling viewport (not the last item inside StripRowContent), so it
+    // never scrolls out of view alongside the real track strips, matching
+    // Logic Pro's own docked Master fader.
+    std::unique_ptr<MasterStrip> masterStrip;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MixerComponent)
 };

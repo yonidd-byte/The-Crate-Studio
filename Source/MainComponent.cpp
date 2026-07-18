@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "UI/CrateColors.h"
 
 namespace
 {
@@ -18,6 +19,12 @@ MainComponent::MainComponent()
       browserDock (*workflow)
 {
     addAndMakeVisible (browserDock);
+
+    // Hybrid Device & Mixer Paradigm — NOT Edit-bound (see its own doc
+    // comment), constructed once here and never touched by rebuildUIForEdit()'s
+    // teardown/rebuild, same as browserDock.
+    bottomPanelContainer = std::make_unique<BottomPanelContainer>();
+    addAndMakeVisible (*bottomPanelContainer);
 
     rebuildUIForEdit();
 
@@ -41,8 +48,16 @@ void MainComponent::rebuildUIForEdit()
     arrangement  = std::make_unique<ArrangementComponent> (workflow->getEdit(), *workflow);
     mixer        = std::make_unique<MixerComponent> (workflow->getEdit(), *workflow);
     deviceChain  = std::make_unique<UniversalDeviceChainComponent> (workflow->getEdit(), *workflow);
+    bottomPanelContainer->setDeviceChainComponent (deviceChain.get()); // re-point at the fresh instance this Load produced
     pianoRoll    = std::make_unique<CratePianoRollComponent>();
     midiInspector = std::make_unique<CrateMidiInspectorComponent>();
+
+    // BrowserComponent now hosts midiInspector as a CHILD (under its INSPECTOR
+    // tab) rather than MainComponent parenting it directly as a competing Grid
+    // sibling — see resized()'s doc comment on leftColumnVisible. Ownership/
+    // lifecycle (construction here, setActiveClip() below, reset() on Load)
+    // stays entirely in MainComponent; browserDock only holds a display pointer.
+    browserDock.setMidiInspector (midiInspector.get());
 
     // Bug 6 fix superseded: MixerStrip and UniversalDeviceChainComponent each now
     // listen directly to their track's own ValueTree for plugin add/remove (see
@@ -60,6 +75,27 @@ void MainComponent::rebuildUIForEdit()
     {
         workflow->selectTrack (t);
         deviceChain->showTrack (t);
+
+        // Task 4 wiring: this app has no te::SelectionManager instance anywhere
+        // (selection is this hand-rolled onTrackSelected callback, already the
+        // single real notification path every other selection consumer above
+        // uses) — so the Inspector is wired into that SAME existing path rather
+        // than bolting on a second, competing selection mechanism nothing else
+        // reads from.
+        browserDock.setSelectedTrack (t);
+    };
+
+    // Task 5: clicking the pinned Master row in the Arrangement pushes
+    // edit->getMasterTrack() through the exact same selection/Device Chain/
+    // Inspector path a real track's header click uses above — "exactly like a
+    // normal track," per spec, just routed through te::Track (Master isn't an
+    // AudioTrack) instead of onTrackSelected's AudioTrack-only callback.
+    arrangement->onMasterTrackSelected = [this]
+    {
+        auto* masterTrack = workflow->getEdit().getMasterTrack();
+        workflow->selectTrack (masterTrack);
+        deviceChain->showTrack (masterTrack);
+        browserDock.setSelectedTrack (masterTrack);
     };
 
     arrangement->onDeleteTrackRequested = [this] (te::AudioTrack* t)
@@ -106,6 +142,29 @@ void MainComponent::rebuildUIForEdit()
         deviceChain->focusPlugin (t, p);
     };
 
+    // Master Track -> Device Chain: te::MasterTrack isn't an AudioTrack, but
+    // showTrack()/loadPluginOntoTrack() were widened to the te::Track base type
+    // specifically so this works — clicking Master now lets the user load
+    // mastering plugins onto it the same way as any real track.
+    mixer->onMasterSelected = [this]
+    {
+        auto* masterTrack = workflow->getEdit().getMasterTrack();
+        workflow->selectTrack (masterTrack);
+        deviceChain->showTrack (masterTrack);
+        browserDock.setSelectedTrack (masterTrack);
+    };
+
+    // Clicking a mastering FX slot in the Mixer's pinned MasterStrip focuses
+    // it in the Device Chain — same "select track, then focus this exact
+    // plugin" two-step onPluginSlotSelected already does for a real track's
+    // inserts, just with getMasterTrack() as the fixed track.
+    mixer->onMasterInsertSelected = [this] (te::Plugin* p)
+    {
+        auto* masterTrack = workflow->getEdit().getMasterTrack();
+        workflow->selectTrack (masterTrack);
+        deviceChain->focusPlugin (masterTrack, p);
+    };
+
     // Makes the bottom zone actually fit its content: a fold/unfold, track
     // switch, or plugin load/delete changes what deviceChain wants to show, so
     // resized() needs to re-run and re-query getPreferredContentHeight() —
@@ -126,6 +185,7 @@ void MainComponent::rebuildUIForEdit()
             [this] // onBeforeEditSwap — old Edit still alive; drop every Edit-bound
                    // UI pointer now, before CrateWorkflowManager touches it.
             {
+                browserDock.setMidiInspector (nullptr); // clear the display pointer BEFORE the real object dies
                 midiInspector.reset(); // hold a raw clip into the old Edit — drop first
                 pianoRoll.reset();
                 deviceChain.reset();
@@ -152,11 +212,15 @@ void MainComponent::rebuildUIForEdit()
         resized();
     };
 
-    transportBar->toggleDeviceChainButton.setToggleState (deviceChainVisible, juce::dontSendNotification);
+    // Dynamic Top Toggle Button — text/behaviour now depend on whichever
+    // view is active (updateBottomPanelForActiveView() sets the label);
+    // clicking it just shows/hides the WHOLE BottomPanelContainer INSTANTLY —
+    // Reverted directive: no tween. A DAW's panel toggle must be zero-latency,
+    // not a 180ms animation disrupting the workflow.
+    transportBar->toggleDeviceChainButton.setToggleState (bottomPanelVisible, juce::dontSendNotification);
     transportBar->toggleDeviceChainButton.onClick = [this]
     {
-        deviceChainVisible = transportBar->toggleDeviceChainButton.getToggleState();
-        deviceChain->setVisible (deviceChainVisible);
+        bottomPanelVisible = transportBar->toggleDeviceChainButton.getToggleState();
         resized();
     };
 
@@ -182,14 +246,16 @@ void MainComponent::rebuildUIForEdit()
     addAndMakeVisible (*transportBar);
     addAndMakeVisible (*arrangement);
     addAndMakeVisible (*mixer);
-    addAndMakeVisible (*deviceChain);
-    deviceChain->setVisible (deviceChainVisible);
+    // deviceChain is NOT added here — bottomPanelContainer hosts it (see
+    // setDeviceChainComponent() above) and manages its visibility itself.
 
-    // Zone-4 overlay panels start hidden (addChildComponent, not
-    // addAndMakeVisible) — enterMidiEditor() reveals them. Added AFTER
-    // arrangement/mixer so they sit above in z-order when shown.
+    // Zone-4 overlay panel starts hidden (addChildComponent, not
+    // addAndMakeVisible) — enterMidiEditor() reveals it. Added AFTER
+    // arrangement/mixer so it sits above in z-order when shown. midiInspector
+    // is NOT added here — it's a child of browserDock now (see
+    // browserDock.setMidiInspector() above), which already owns its own
+    // addChildComponent/addAndMakeVisible for it.
     addChildComponent (*pianoRoll);
-    addChildComponent (*midiInspector);
 
     // Re-applies whichever view was active before this rebuild (Load reconstructs
     // both from scratch, so their fresh isVisible() defaults can't be trusted).
@@ -209,6 +275,13 @@ void MainComponent::showArrangementView()
     transportBar->timelineButton.setToggleState (true, juce::dontSendNotification);
     transportBar->mixerButton.setToggleState (false, juce::dontSendNotification);
 
+    // Smart Default (NOT a hard lock — the user can still click any tab
+    // afterward): landing on Timeline defaults the Left Panel to INSPECTOR,
+    // which shows the track/output dual-strip view since Piano Roll isn't
+    // active here.
+    browserDock.setActiveTab (3);
+
+    updateBottomPanelForActiveView();
     resized();
 }
 
@@ -222,6 +295,12 @@ void MainComponent::showMixerView()
     transportBar->timelineButton.setToggleState (false, juce::dontSendNotification);
     transportBar->mixerButton.setToggleState (true, juce::dontSendNotification);
 
+    // Smart Default: the full Mixer is already every track's channel strip —
+    // defaulting the Left Panel to a single track's Inspector would be visual
+    // duplication, so this lands on PLUGINS instead.
+    browserDock.setActiveTab (0);
+
+    updateBottomPanelForActiveView();
     resized();
 }
 
@@ -232,17 +311,17 @@ void MainComponent::enterMidiEditor (te::MidiClip* clip)
 
     showingMidiEditor = true;
 
-    // Hide the Arrangement macro-view + Browser; reveal the Zone-4 overlay.
-    // transportBar (row 1, spans both Grid columns) is deliberately NEVER
-    // touched here — it must stay visible and clickable so the 'Arrange'
-    // button remains a working exit route alongside Escape (see its onClick
-    // wiring above for the other half of that fix).
+    // Hide the Arrangement macro-view; reveal the Zone-4 overlay. transportBar
+    // (row 1, spans both Grid columns) is deliberately NEVER touched here — it
+    // must stay visible and clickable so the 'Arrange' button remains a
+    // working exit route alongside Escape (see its onClick wiring above for
+    // the other half of that fix). browserDock is deliberately NOT hidden
+    // either anymore — it's the permanent Left Panel host now, including for
+    // midiInspector (its INSPECTOR tab content while pianoRollActive).
     arrangement->setVisible (false);
     mixer->setVisible (false);
-    browserDock.setVisible (false);
 
     pianoRoll->setVisible (true);
-    midiInspector->setVisible (true);
 
     // Point both panels at the clip AFTER making the piano roll visible, so its
     // own grabKeyboardFocus() (in setActiveClip) sees isShowing() == true.
@@ -250,6 +329,13 @@ void MainComponent::enterMidiEditor (te::MidiClip* clip)
     pianoRoll->setActiveClip (clip);
     midiInspector->setActiveClip (clip);
 
+    // Smart Default (not a hard lock): opening the Piano Roll switches the
+    // Left Panel to INSPECTOR, and setPianoRollActive(true) is what makes that
+    // tab show midiInspector instead of the track/output dual-strip view.
+    browserDock.setPianoRollActive (true);
+    browserDock.setActiveTab (3);
+
+    updateBottomPanelForActiveView();
     resized();
 
     // Focus trap (QA requirement): explicit re-grab after layout so Escape
@@ -267,21 +353,50 @@ void MainComponent::exitMidiEditor()
     pianoRoll->setActiveClip (nullptr);
     midiInspector->setActiveClip (nullptr);
     pianoRoll->setVisible (false);
-    midiInspector->setVisible (false);
 
-    // Restore the Browser to whatever its toggle says, then re-show whichever
-    // center view (Arrange/Mix) was active before entering — showXxxView()
-    // calls resized() itself.
-    browserDock.setVisible (transportBar->toggleBrowserButton.getToggleState());
+    // Context switch back — if the Left Panel is still on the INSPECTOR tab,
+    // it now shows the track/output dual-strip view instead of midiInspector.
+    browserDock.setPianoRollActive (false);
+
+    // Re-show whichever center view (Arrange/Mix) was active before entering —
+    // showXxxView() applies its own Smart Default tab AND calls resized() itself.
     showingMixerView ? showMixerView() : showArrangementView();
 
     // Hand keyboard focus back to the shell so global Spacebar transport works.
     grabKeyboardFocus();
 }
 
+void MainComponent::updateBottomPanelForActiveView()
+{
+    if (bottomPanelContainer == nullptr || transportBar == nullptr)
+        return;
+
+    BottomPanelContainer::ActiveView view;
+    juce::String buttonText;
+
+    if (showingMidiEditor)
+    {
+        view = BottomPanelContainer::ActiveView::pianoRoll;
+        buttonText = "MIDI FX";
+    }
+    else if (showingMixerView)
+    {
+        view = BottomPanelContainer::ActiveView::mixer;
+        buttonText = "ANALYZE";
+    }
+    else
+    {
+        view = BottomPanelContainer::ActiveView::arrangement;
+        buttonText = "DEVICE CHAIN";
+    }
+
+    bottomPanelContainer->setActiveView (view);
+    transportBar->toggleDeviceChainButton.setButtonText (buttonText);
+}
+
 void MainComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff121214));
+    g.fillAll (CrateColors::DarkBackground);
 }
 
 void MainComponent::paintOverChildren (juce::Graphics& g)
@@ -308,13 +423,13 @@ void MainComponent::paintOverChildren (juce::Graphics& g)
     // across the center row, which resized() computes AFTER carving the Device
     // Chain strip off the bottom — see the removeFromBottom() call there), so using
     // browserDock.getY()/getHeight() directly means this line can never drift from
-    // that zone boundary, however deviceChainHeight changes.
+    // that zone boundary, however BottomPanelContainer::preferredHeight changes.
     if (browserDock.isVisible())
         g.fillRect (browserDock.getRight(), browserDock.getY(), 2, browserDock.getHeight());
 
-    // Device Chain top edge — only meaningful while the chain is actually showing.
-    if (deviceChain->isVisible())
-        g.fillRect (0, deviceChain->getY(), getWidth(), 2);
+    // Bottom panel top edge — only meaningful while it's showing.
+    if (! bottomPanelBounds.isEmpty())
+        g.fillRect (0, bottomPanelBounds.getY(), getWidth(), 2);
 }
 
 void MainComponent::resized()
@@ -323,42 +438,37 @@ void MainComponent::resized()
          || pianoRoll == nullptr || midiInspector == nullptr)
         return; // mid-rebuildUIForEdit(), old set already reset, new set not yet built
 
-    constexpr int transportHeight      = 50;
-    constexpr int browserWidth         = 280;
-    constexpr int minDeviceChainHeight = 48;  // a folded/empty chain — header row plus a hair of padding
-    constexpr int maxDeviceChainHeight = 260; // sanity cap so an unfolded device can't eat the whole window
+    constexpr int transportHeight    = 50;
+    constexpr int browserWidth       = 280;
 
     auto bounds = getLocalBounds();
 
-    // "Make it fit exactly" fix: deviceChainHeight is no longer a fixed
-    // constant — it's deviceChain's OWN reported content height (fold state,
-    // track, plugin count), clamped to a sane range. An empty/folded chain now
-    // gets a thin strip instead of always reserving 260px of mostly-empty
-    // background; an unfolded device gets exactly what its content needs, up
-    // to the cap. deviceChain->onPreferredHeightChanged (wired in
-    // rebuildUIForEdit()) is what re-triggers this resized() call whenever that
-    // content height actually changes.
-    const int deviceChainHeight = juce::jlimit (minDeviceChainHeight, maxDeviceChainHeight,
-                                                 deviceChain->getPreferredContentHeight());
-
-    // Snap-to-bottom fix (still in effect): carve the Device Chain strip off
+    // Snap-to-bottom fix (still in effect): carve the bottom panel strip off
     // the UN-REDUCED local bounds with plain integer arithmetic BEFORE
     // anything else touches `bounds` — juce::Grid's per-row float rounding is
     // what caused the original 1-2px float; removeFromBottom() has none.
     // Clamps safely to whatever's left if the window is shorter than
-    // deviceChainHeight (e.g. minimized) — never a negative rect.
-    auto deviceChainBounds = deviceChainVisible ? bounds.removeFromBottom (deviceChainHeight)
-                                                 : juce::Rectangle<int>();
-    deviceChain->setBounds (deviceChainBounds);
+    // BottomPanelContainer::preferredHeight (e.g. minimized) — never a
+    // negative rect. Reverted directive: toggling is an instant setVisible()-
+    // style pop, not a tween — this is the ONLY place that ever sets
+    // bottomPanelContainer's bounds, called synchronously from the toggle
+    // button's onClick with no animation involved.
+    auto bottomBounds = bottomPanelVisible ? bounds.removeFromBottom (BottomPanelContainer::preferredHeight)
+                                            : juce::Rectangle<int>();
+    bottomPanelContainer->setBounds (bottomBounds);
+    bottomPanelBounds = bottomBounds;
 
     using Track = juce::Grid::TrackInfo;
     using Px    = juce::Grid::Px;
     using Fr    = juce::Grid::Fr;
 
-    // Left column is occupied by EITHER the Browser (Arrangement view) OR the
-    // MIDI Inspector (Zone-4 overlay) — so it must keep its width whenever
-    // either is showing, not just the Browser.
-    const bool leftColumnVisible = browserDock.isVisible() || showingMidiEditor;
+    // Left column is the Browser/Left-Panel — now the PERMANENT host of both
+    // the plugin/sample/favorites browser AND the Context-Aware Inspector (see
+    // BrowserComponent's INSPECTOR tab), including while the Piano Roll overlay
+    // is open (midiInspector is a CHILD of browserDock now, not a separate Grid
+    // sibling competing for this same cell — see setMidiInspector()). So its
+    // width only depends on the Browser's own visibility toggle.
+    const bool leftColumnVisible = browserDock.isVisible();
 
     juce::Grid grid;
 
@@ -367,14 +477,13 @@ void MainComponent::resized()
     grid.templateColumns = { Track (Px (leftColumnVisible ? browserWidth : 0)),
                               Track (Fr (1)) };
 
-    // Arrangement, Mixer, and the Piano Roll all share the center cell (2,2);
-    // Browser and the MIDI Inspector share the left cell (2,1). Grid sets bounds
-    // on every item each layout regardless of setVisible() — only the visible
-    // one paints/receives events (Law I crossfade, same as Arrangement<->Mixer).
+    // Arrangement, Mixer, and the Piano Roll all share the center cell (2,2).
+    // Grid sets bounds on every item each layout regardless of setVisible() —
+    // only the visible one paints/receives events (Law I crossfade, same as
+    // Arrangement<->Mixer).
     grid.items = {
         juce::GridItem (*transportBar).withArea (1, 1, 2, 3),   // row 1, spans both columns
         juce::GridItem (browserDock).withArea (2, 1),           // row 2, col 1
-        juce::GridItem (*midiInspector).withArea (2, 1),        // shares col 1 with Browser
         juce::GridItem (*arrangement).withArea (2, 2),
         juce::GridItem (*mixer).withArea (2, 2),
         juce::GridItem (*pianoRoll).withArea (2, 2),            // shares center cell

@@ -1,588 +1,361 @@
 #include "MixerStrip.h"
 #include "TheCrateLookAndFeel.h"
+#include "CrateColors.h"
 #include "PluginSlotComponent.h"
+#include "CrateSendSlot.h"
+#include "CrateEQThumbnail.h"
+#include "CrateCompressorPopup.h"
+#include "InsertsRackComponent.h"
+#include "TrackColourEditor.h"
+#include "AddIconButton.h"
+#include "SendBusUtils.h"
 
 #include <map>
+#include <set>
 
 namespace
 {
     using LAF = TheCrateLookAndFeel;
 
-    // Must match TrackHeaderComponent's ToggleBlock role colours exactly (same
-    // physical track, same two meanings, two views).
-    const auto soloOnColour    = juce::Colour (0xff29d6f0);
-    const auto muteOnColour    = juce::Colour (0xffff9500); // studio orange — Mute (ON = muted)
-    const auto bypassOffColour = juce::Colour (0xff5a5a60);
-    const auto sectionCaption  = juce::Colour (0xff6a6a72);
+    // QA Hardening fix — te::AudioTrack::setMute()/setSolo() write straight
+    // through a juce::CachedValue bound with a NULLPTR UndoManager (verified
+    // against tracktion_AudioTrack.cpp: muted/soloed .referTo(state, IDs::...,
+    // nullptr) in its constructor), so those calls are NOT undoable no matter
+    // how the CALLER wraps them — a beginNewTransaction() around a plain
+    // track->setMute() call does nothing, because the nullptr is baked into
+    // the CachedValue itself at construction, not chosen per call. The value
+    // still PERSISTS (it's a real ValueTree property write, survives Edit
+    // save/reload), just without Ctrl+Z. Fixed here with an explicit
+    // UndoableAction that re-applies old/new state itself, independent of
+    // CachedValue's own broken undo wiring — no engine files touched.
+    class TrackMuteSoloAction : public juce::UndoableAction
+    {
+    public:
+        TrackMuteSoloAction (te::AudioTrack::Ptr t, bool isSoloAction, bool newState)
+            : track (t), isSolo (isSoloAction), newValue (newState),
+              oldValue (t != nullptr ? (isSoloAction ? t->isSolo (false) : t->isMuted (false)) : false) {}
+
+        bool perform() override { apply (newValue); return true; }
+        bool undo() override    { apply (oldValue); return true; }
+
+    private:
+        void apply (bool value) const
+        {
+            if (track == nullptr)
+                return;
+
+            if (isSolo) track->setSolo (value);
+            else        track->setMute (value);
+        }
+
+        te::AudioTrack::Ptr track;
+        bool isSolo, newValue, oldValue;
+    };
+
+    // Role colours — Lead Architect's "Ghost Buttons" spec: matte, desaturated
+    // console colours for the R/S/I triad (Mute has no button anymore — the
+    // name plate is the Mute toggle, see applyTrackColourToPlate()). These are
+    // semantic STATUS colours (armed/soloed), deliberately outside the strict
+    // 4-colour hierarchy — see CrateColors.h's own doc comment.
+    const auto soloOnColour   = juce::Colour (0xffb8860b); // matte yellow (dark goldenrod)
+    const auto recordOnColour = juce::Colour (0xffdc143c); // matte red (crimson)
+    const auto sectionCaption = CrateColors::BrandGray;
+
+    // Cubase-style pan readout — "C" dead centre, otherwise the percentage
+    // toward whichever side, with a small arrow flanking the OUTER edge
+    // (pointing away from centre) as a directional hint.
+    juce::String panValueText (float pan)
+    {
+        const int percent = juce::roundToInt (std::abs (pan) * 100.0f);
+        if (percent == 0)
+            return "C";
+        return pan < 0.0f ? ("< " + juce::String (percent) + " L")
+                           : (juce::String (percent) + " R >");
+    }
 
     constexpr float meterFloorDb = -60.0f;
     constexpr float meterRangeDb = 66.0f; // floor to +6 dB headroom
 
-    constexpr int collapsedStripHeight = 210;
+    constexpr int meterColumnWidth   = 22;
+    constexpr int grMeterColumnWidth = 8;
 
-    // "Minimum-10 Scrolling Grid" (Pro Tools/Ableton hybrid Inserts rack): every
-    // slot is a strict, hardcoded 24px row — NEVER divided from the parent's
-    // height to squish more in — and the section always shows at least
-    // insertMinVisibleRows rows' worth of viewport, real or "ghost" (empty).
-    // A track with more real plugins than that just scrolls inside the fixed
-    // viewport height instead of shrinking every row into illegibility.
-    constexpr int insertRowHeight      = 24;
-    constexpr int insertRowGap         = 2;
-    constexpr int insertMinVisibleRows = 10;
-    constexpr int insertsCaptionHeight = 14;
-    constexpr int insertsSectionPadding = 8; // matches getLocalBounds().reduced (6, 4)'s top+bottom
-    constexpr int insertsViewportHeight = insertMinVisibleRows * (insertRowHeight + insertRowGap);
-    constexpr int insertsSectionHeight  = insertsCaptionHeight + insertsViewportHeight + insertsSectionPadding;
+    // ---- Strict bottom-up level heights (see MixerStrip.h's anatomy diagram) --
+    constexpr int levelGap   = 4;
+    constexpr int nameH      = 20; // L1  track-name plate — IS the Mute toggle now (Ableton Mute paradigm)
+    constexpr int tripletH   = 22; // R/S/I triad row, directly above the name plate
+    constexpr int dbReadoutH = 16; // L5  dB readout boxes
+    constexpr int panH       = 42; // L6  pan knob — extracted, sits below the Routing well now
+    constexpr int faderMinH  = 130; // L4 fader block minimum (it stretches past this)
 
-    constexpr int rackHeight = 50 + insertsSectionHeight + 60; // Routing(50) + Inserts + Sends(60), rigid sections
+    // Scribble Strip (L1) — embedded icon (no plate/border, drawn straight
+    // onto the dark void background) at the absolute bottom, track name
+    // (Mute toggle) directly above it. The old dedicated M button and 4px
+    // colour strip are GONE — the name plate's own fill IS the colour cue now
+    // (see applyTrackColourToPlate()).
+    constexpr int scribbleIconH  = 22;
+    constexpr int scribbleGap    = 2;
 
-    // Pro Tools console aesthetic: a massive, clearly-visible meter next to the
-    // fader, not a thin sliver — widened from the previous 18px outer column
-    // (which left only a 14px actual bar) to a real 24px-wide presence. One
-    // named constant, used by BOTH paint()'s meterColumn and resized()'s
-    // reservation, so they can never drift apart (same discipline
-    // UniversalDeviceChainComponent's DeviceBlock uses for its own shared
-    // layout constants).
-    constexpr int meterColumnWidth = 32;
+    // Pan value readout, directly below the (now-extracted) Pan knob.
+    constexpr int panValueH   = 12;
+    constexpr int panValueGap = 2;
+
+    // ---- Deep stack (L9–L14), only laid out when the rack is expanded ---------
+    // L9 Routing is now DYNAMIC height (RoutingBlock::getPreferredHeight()) —
+    // routingRowH alone when the Group chip is hidden (no group assigned;
+    // always true today, see RoutingBlock::setGroupName()'s doc comment),
+    // routingRowH*2 + routingRowGap when a group IS assigned and its chip
+    // shows. coreStripHeight()/deepStackHeight() below use the single-row
+    // value since that's the only reachable state right now — MixerComponent
+    // shares ONE row height across every strip (see its own doc comment), so
+    // a per-track-dynamic well height here would need that architecture to
+    // change too, once real track-group data exists.
+    constexpr int routingRowH   = 22;
+    constexpr int routingRowGap = 2;
+    constexpr int sendsH    = 62; // L10 sends
+    // L11 inserts height == InsertsRackComponent::getFixedHeight()
+    constexpr int compH     = 24; // L12 channel comp block — a neat single-slot-height rect (it only opens a popup)
+    constexpr int eqH       = 60; // L13 EQ display
+    constexpr int settingsH = 22; // L14 settings button
+
+    constexpr int outerMargin = 4; // strict 4px margin — name plate / R-S-I triad / fader / pan / icon family only
+
+    // "Universal Rack Width" (Absolute Symmetry directive) — ONE constant
+    // positions EVERY dark rack container: Comp, Inserts well, Sends well,
+    // Routing well. No exceptions, no per-block margin scheme — this is the
+    // single source of X/width for all four, so their edges are guaranteed to
+    // line up top-to-bottom. universalWidth = getWidth() - rackMargin*2.
+    // (InsertsRackComponent draws its own fill/border across its full bounds,
+    // so giving it these exact bounds in resized() makes it BE the well;
+    // Sends/Routing get a separately hand-painted well in paint() sized off
+    // this same constant; Comp is a raised button, not a well, but shares the
+    // identical bounding box so its edges still align with the others.)
+    // Bus 1 rows sit rackButtonPadding further in again inside Sends
+    // specifically (scrollbar clearance) — an internal detail, not a
+    // different CONTAINER margin, so it doesn't violate the rule above.
+    constexpr int rackMargin        = 6;
+    constexpr int rackButtonPadding = 4;
+
+    // Strict breathing room between the SENDS block and the Routing block —
+    // bigger than the ordinary levelGap so the two dark wells visibly never
+    // touch (both wells wrap their component snugly, zero extra vertical
+    // padding, so this IS the exact gap that ends up on screen between them).
+    constexpr int sendsToRoutingGap = 8;
 
     const juce::String pluginDragPrefix = "plugin_drag|";
 
-    // Utility plugins every track carries (volume/pan, metering) aren't "inserts" in
-    // the Pro Tools sense — InsertsBlock only lists plugins the user actually loaded.
-    bool isUtilityPlugin (const te::Plugin& p)
+    int coreStripHeight()
     {
-        return dynamic_cast<const te::VolumeAndPanPlugin*> (&p) != nullptr
-            || dynamic_cast<const te::LevelMeterPlugin*> (&p) != nullptr
-            || dynamic_cast<const te::AuxSendPlugin*> (&p) != nullptr;
+        return outerMargin * 2
+             + scribbleIconH + scribbleGap + nameH + levelGap // L1 Scribble Strip (icon below the Mute-toggle name plate)
+             + tripletH + levelGap         // R/S/I triad
+             + faderMinH + levelGap        // L4
+             + dbReadoutH + levelGap       // L5
+             + panValueH + panValueGap     // pan value readout, tight gap below the knob
+             + panH;                       // L6 — topmost core term now that Read (L8) is gone
+    }
+
+    int deepStackHeight()
+    {
+        return routingRowH + levelGap       // L9 Routing (single-row baseline) -> Pan knob gap
+             + sendsToRoutingGap            // strict Sends<->Routing well gap, not the ordinary levelGap
+             + sendsH + levelGap
+             + InsertsRackComponent::getFixedHeight() + levelGap
+             + compH + levelGap
+             + eqH + levelGap
+             + settingsH + levelGap;
     }
 }
 
 //==============================================================================
-// ChannelStripRack — the collapsible Pro Tools-style block: Routing / Inserts / Sends.
-// Nested (not top-level classes) since none of the three sections are meaningful
-// outside a MixerStrip's context — they all operate on that strip's own track.
-class MixerStrip::ChannelStripRack : public juce::Component
+// L9 — Routing: OUT 1+2 (a REAL functional ComboBox — the output routing logic
+// that used to live in the dissolved ChannelStripRack) alone, or stacked with
+// the Group chip BELOW it when the track is actually assigned to a group.
+// DYNAMIC height: getPreferredHeight() reflects whichever state groupSlot is
+// currently in, and MixerStrip::resized()/paint() both read that back so the
+// well can never wrap a hidden chip's dead space.
+struct MixerStrip::RoutingBlock : public juce::Component
 {
-public:
-    ChannelStripRack (te::AudioTrack::Ptr t, CrateWorkflowManager& w) : track (t), workflow (w)
+    RoutingBlock()
     {
-        addAndMakeVisible (routingSection);
-        addAndMakeVisible (insertsSection);
-        addAndMakeVisible (sendsSection);
+        addAndMakeVisible (outputCombo);
 
-        // Input routing isn't wired to the engine yet (MASTER_ARCHITECTURE.md
-        // roadmap — full input-device routing is a later phase), so this combo is
-        // a single-item placeholder, honestly disclosed via tooltip rather than
-        // faking a working dropdown.
-        routingSection.inputCombo.addItem ("Ext. In", 1);
-        routingSection.inputCombo.setSelectedId (1, juce::dontSendNotification);
-        routingSection.inputCombo.setTooltip ("Input routing isn't wired to the engine yet - display only.");
-
-        populateOutputCombo();
-        routingSection.outputCombo.onChange = [this] { applyOutputComboSelection(); };
-
-        rebuild();
+        // groupSlot is a plain Label — it never routes through
+        // HardwareSlotLookAndFeel (that only intercepts Button/ComboBox
+        // painting), so its own backgroundColourId stays fully transparent
+        // and paint() below draws the IDENTICAL bevel by hand, using the
+        // exact same constants outputCombo's LookAndFeel draws with, so the
+        // two chips can never visually drift apart. Hidden by default —
+        // see setGroupName()'s doc comment on why this is the only reachable
+        // state today.
+        addAndMakeVisible (groupSlot);
+        groupSlot.setJustificationType (juce::Justification::centred);
+        groupSlot.setColour (juce::Label::textColourId, HardwareSlotLookAndFeel::dimTextColour);
+        groupSlot.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+        groupSlot.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        groupSlot.setVisible (false);
     }
 
-    /** Re-reads the track's current plugin list — call after any plugin load/remove
-        so Inserts/Sends don't go stale (same contract as ArrangementComponent's
-        rebuildTracks() / MixerComponent's rebuildStrips()). */
-    void rebuild()
+    /** Empty groupName hides the chip entirely (getPreferredHeight() shrinks
+        to just OUT 1+2); a non-empty name shows it with that text. Tracktion
+        Engine has no track-group concept to query yet (verified — no
+        TrackGroup/getGroupID API exists on te::Track, only unrelated per-clip
+        grouping), so every call site today passes an empty name and this
+        chip is honestly always hidden until that data model exists. */
+    void setGroupName (const juce::String& groupName)
     {
-        insertSlots.clear();
-        ghostInsertSlots.clear();
-        sendSlots.clear();
-        sendLevelSliders.clear();
-
-        if (track == nullptr)
-        {
-            resized();
-            return;
-        }
-
-        for (auto* p : track->pluginList)
-        {
-            if (p == nullptr || isUtilityPlugin (*p))
-                continue;
-
-            if (auto* send = dynamic_cast<te::AuxSendPlugin*> (p))
-            {
-                auto slot = std::make_unique<PluginSlotComponent> ("Bus " + juce::String (send->getBusNumber()));
-                slot->setBypassState (send->isEnabled(), juce::dontSendNotification);
-                slot->onBypassToggle = [send] (bool isOn) { send->setEnabled (isOn); };
-                // Deliberately no onClicked: AuxSendPlugin is excluded from the
-                // Universal Device Chain (isChainablePlugin() there), so wiring a
-                // focus request for it would just clear the chain's focus state —
-                // matches the original SendRow's behaviour of not being selectable.
-
-                auto levelSlider = std::make_unique<juce::Slider> (juce::Slider::LinearHorizontal, juce::Slider::NoTextBox);
-
-                if (send->gain != nullptr)
-                {
-                    auto* gainParam = send->gain.get();
-                    const auto range = gainParam->getValueRange();
-                    levelSlider->setRange (range.getStart(), range.getEnd(), 0.001);
-                    levelSlider->setValue (gainParam->getCurrentValue(), juce::dontSendNotification);
-
-                    const auto busNumber = send->getBusNumber();
-                    levelSlider->onDragStart = [gainParam, busNumber]
-                    {
-                        gainParam->getEdit().getUndoManager().beginNewTransaction ("Tweak Send " + juce::String (busNumber) + " Level");
-                        gainParam->parameterChangeGestureBegin();
-                    };
-                    levelSlider->onDragEnd = [gainParam] { gainParam->parameterChangeGestureEnd(); };
-
-                    auto* sliderPtr = levelSlider.get();
-                    levelSlider->onValueChange = [gainParam, sliderPtr] { gainParam->setParameter ((float) sliderPtr->getValue(), juce::sendNotificationSync); };
-                }
-
-                slot->setTrailingComponent (levelSlider.get());
-                sendsSection.addAndMakeVisible (*slot);
-                sendLevelSliders.push_back (std::move (levelSlider));
-                sendSlots.push_back (std::move (slot));
-            }
-            else
-            {
-                auto slot = std::make_unique<PluginSlotComponent> (p->getName());
-                slot->setBypassState (p->isEnabled(), juce::dontSendNotification);
-                slot->onBypassToggle = [p] (bool isOn) { p->setEnabled (isOn); };
-
-                // 'Pop & Sync' workflow: a single click on a loaded insert both
-                // focuses it in the Device Chain (as before) AND pops its own
-                // native GUI over the DAW immediately — mix engineers no longer
-                // need a second trip through the Device Chain just to open the
-                // plugin's window. Reuses the exact showWindowExplicitly() path
-                // CrateWorkflowManager already calls right after instantiating a
-                // plugin, guarded the same way (hasEditor() — some plugins/
-                // internal types have no UI at all). This stays here rather than
-                // inside PluginSlotComponent itself deliberately: that class is
-                // engine-agnostic by design (see its class doc comment) and has
-                // no tracktion_engine include to call te::Plugin APIs with —
-                // MixerStrip already owns the te::Plugin* binding, same as
-                // onBypassToggle/onPluginDropped above.
-                slot->onClicked = [this, p]
-                {
-                    if (onSlotSelected)
-                        onSlotSelected (p);
-
-                    if (auto* processor = p->getWrappedAudioProcessor())
-                        if (processor->hasEditor())
-                            p->showWindowExplicitly();
-                };
-
-                // Drag-and-drop from the Browser (MASTER_ARCHITECTURE.md section 1):
-                // resolve the dropped plugin's identifier back to a real
-                // juce::PluginDescription via the engine's own knownPluginList, then
-                // insert it AT this slot's current index — pushing this plugin (and
-                // everything after it) down one, not appending to the end. No manual
-                // rack->rebuild() call needed afterwards: loadPluginOntoTrack()'s
-                // insertPlugin() fires the track's own ValueTree PLUGIN-child-added
-                // notification, which this class already listens for (see
-                // MixerStrip::valueTreeChildAdded) and rebuilds from, deferred.
-                slot->onPluginDropped = [this, p] (const juce::String& identifier)
-                {
-                    if (track == nullptr)
-                        return;
-
-                    if (auto desc = track->edit.engine.getPluginManager().knownPluginList.getTypeForIdentifierString (identifier))
-                    {
-                        const int index = track->pluginList.indexOf (p);
-                        workflow.loadPluginOntoTrack (*desc, *track, index);
-                    }
-                };
-
-                insertsSection.content.addAndMakeVisible (*slot);
-                insertSlots.push_back (std::move (slot));
-            }
-        }
-
-        // "Minimum-10 Scrolling Grid": pad out to at least insertMinVisibleRows
-        // rows with empty, explicitly-numbered ghost slots — exactly one
-        // trailing ghost once the track already has more real plugins than
-        // that minimum, so there's always exactly one obvious "drop here to
-        // append" row no matter how many plugins are already loaded.
-        const int filledCount = (int) insertSlots.size();
-        const int totalRows = juce::jmax (insertMinVisibleRows, filledCount + 1);
-
-        for (int index = filledCount; index < totalRows; ++index)
-        {
-            auto ghost = std::make_unique<PluginSlotComponent> (juce::String());
-            ghost->setGhostState (true);
-
-            // Dropping onto THIS numbered ghost row inserts at its exact
-            // index, not a blanket append — slot #5 always means "become
-            // plugin #5", even while slots #3/#4 are themselves still empty
-            // ghosts (loadPluginOntoTrack/PluginList::insertPlugin clamps to
-            // the end if index is ever past the real list's current size).
-            ghost->onPluginDropped = [this, index] (const juce::String& identifier)
-            {
-                if (track == nullptr)
-                    return;
-
-                if (auto desc = track->edit.engine.getPluginManager().knownPluginList.getTypeForIdentifierString (identifier))
-                    workflow.loadPluginOntoTrack (*desc, *track, index);
-            };
-
-            insertsSection.content.addAndMakeVisible (*ghost);
-            ghostInsertSlots.push_back (std::move (ghost));
-        }
-
-        // Explicit, cascade-independent relayout of the grid's new children —
-        // see InsertsSection::refreshContentLayout()'s doc comment for why
-        // this can't just be left to the resized() call below.
-        insertsSection.refreshContentLayout();
+        const bool isGrouped = groupName.isNotEmpty();
+        if (isGrouped)
+            groupSlot.setText (groupName, juce::dontSendNotification);
+        groupSlot.setVisible (isGrouped);
         resized();
     }
 
-    std::function<void (te::Plugin*)> onSlotSelected;
+    int getPreferredHeight() const
+    {
+        return groupSlot.isVisible() ? (routingRowH * 2 + routingRowGap) : routingRowH;
+    }
 
-    // Rigid, Pro-Tools-style strict sequential subtraction — every section gets a
-    // fixed, unconditional height. No FlexBox, no removeFromTop() chains that can
-    // silently hand a row less space (down to zero) than it needs; each section is
-    // a self-contained Component that lays out its own children within whatever
-    // fixed rectangle it's handed here.
     void resized() override
     {
         auto b = getLocalBounds();
-        routingSection.setBounds (b.removeFromTop (50));
-
-        // Component::setBounds() is a silent no-op — it does NOT call
-        // resized() — when the rect given is identical to the component's
-        // CURRENT bounds. rebuild() runs from the async ValueTree listener
-        // (a plugin dropped/loaded/removed) without ChannelStripRack's own
-        // bounds ever changing, so insertsSection/sendsSection's rects here
-        // are the same every time — meaning their resized() (and therefore
-        // InsertsSection's viewport/content relayout) would silently never
-        // re-run, leaving freshly rebuilt PluginSlotComponents sitting at
-        // their default (0,0,0,0) bounds — invisible — until something else
-        // (e.g. a tab switch forcing a real, size-changing top-down layout
-        // pass) finally gave them real bounds. Forcing an explicit resized()
-        // call after each setBounds() closes that gap: it always re-lays-out
-        // the section's current children immediately, regardless of whether
-        // the section's own rectangle moved a single pixel.
-        insertsSection.setBounds (b.removeFromTop (insertsSectionHeight));
-        insertsSection.resized();
-
-        sendsSection.setBounds (b.removeFromTop (60));
-        sendsSection.resized();
+        if (groupSlot.isVisible())
+        {
+            outputCombo.setBounds (b.removeFromTop (routingRowH));
+            b.removeFromTop (routingRowGap);
+            groupSlot.setBounds (b);
+        }
+        else
+        {
+            outputCombo.setBounds (b);
+        }
     }
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (LAF::background);
-
-        // Subtle dividers between the three fixed slots — reads as distinct Pro
-        // Tools-style sections rather than one continuous block.
-        g.setColour (juce::Colours::grey.withAlpha (0.3f));
-        g.drawHorizontalLine (routingSection.getBottom(), 0.0f, (float) getWidth());
-        g.drawHorizontalLine (insertsSection.getBottom(), 0.0f, (float) getWidth());
+        // Hand-drawn hardware-slot bevel for groupSlot ("No Group") — see the
+        // constructor comment above for why this can't just go through the
+        // LookAndFeel like outputCombo does. Only meaningful while visible.
+        if (groupSlot.isVisible())
+            HardwareSlotLookAndFeel::drawRaisedChip (g, groupSlot.getBounds().toFloat(), HardwareSlotLookAndFeel::fillColour);
     }
 
-private:
-    void populateOutputCombo()
+    juce::ComboBox outputCombo;
+    juce::Label    groupSlot;
+};
+
+//==============================================================================
+// L10 — Sends: a caption plus a vertical stack of CrateSendSlots (destination
+// chip + mini level knob, one per te::AuxSendPlugin on the track) — the SAME
+// shared component the Dual-Strip Inspector uses. Master has no sends, so
+// MasterStrip omits this section entirely.
+struct MixerStrip::SendsSection : public juce::Component
+{
+    // The scrollable INNER content — holds the actual CrateSendSlot stack.
+    // sendsH (the OUTER SendsSection height) stays a fixed constant so every
+    // strip's shared row height never changes; once more sends exist than fit,
+    // this Content just grows taller than its Viewport and the Viewport's own
+    // drag-scroll (scrollbars hidden) reveals the rest — same pattern as
+    // CrateTrackInspectorComponent's own sendsViewport.
+    struct Content : public juce::Component
     {
-        routingSection.outputCombo.clear (juce::dontSendNotification);
-        outputComboActions.clear();
-
-        if (track == nullptr)
-            return;
-
-        juce::StringArray deviceNames, aliases;
-        juce::BigInteger hasAudio, hasMidi;
-        te::TrackOutput::getPossibleOutputDeviceNames (te::getAudioTracks (track->edit), deviceNames, aliases, hasAudio, hasMidi);
-
-        int itemId = 1;
-
-        for (auto& deviceName : deviceNames)
-        {
-            routingSection.outputCombo.addItem (deviceName, itemId);
-            outputComboActions[itemId] = [this, deviceName] { track->getOutput().setOutputToDeviceID (deviceName); };
-            ++itemId;
-        }
-
-        bool addedSeparator = false;
-
-        for (auto* other : te::getAudioTracks (track->edit))
-        {
-            if (other == track.get())
-                continue;
-
-            if (! addedSeparator)
-            {
-                routingSection.outputCombo.addSeparator();
-                addedSeparator = true;
-            }
-
-            routingSection.outputCombo.addItem ("Track: " + other->getName(), itemId);
-            outputComboActions[itemId] = [this, other] { track->getOutput().setOutputToTrack (other); };
-            ++itemId;
-        }
-
-        // Best-effort selection match against the track's real current output —
-        // TrackOutput doesn't expose a stable "which item id is this" query, so
-        // this matches by the same descriptive text the old TextButton showed.
-        const auto currentDescription = track->getOutput().getDescriptiveOutputName();
-
-        for (int i = 0; i < routingSection.outputCombo.getNumItems(); ++i)
-        {
-            if (routingSection.outputCombo.getItemText (i) == currentDescription)
-            {
-                routingSection.outputCombo.setSelectedId (routingSection.outputCombo.getItemId (i), juce::dontSendNotification);
-                break;
-            }
-        }
-    }
-
-    void applyOutputComboSelection()
-    {
-        const auto it = outputComboActions.find (routingSection.outputCombo.getSelectedId());
-
-        if (it != outputComboActions.end())
-            it->second();
-    }
-
-    //==========================================================================
-    struct RoutingSection : public juce::Component
-    {
-        RoutingSection()
-        {
-            addAndMakeVisible (caption);
-            caption.setText ("ROUTING", juce::dontSendNotification);
-            caption.setFont (juce::FontOptions (9.0f, juce::Font::bold));
-            caption.setColour (juce::Label::textColourId, sectionCaption);
-
-            // Sleek flat dropdowns for In/Out — CrateMixerLookAndFeel's
-            // drawComboBox() (set as this whole rack's LookAndFeel, see
-            // ChannelStripRack's constructor via getLookAndFeel() inheritance from
-            // MixerStrip) replaces the bulky default OS/JUCE combo chrome.
-            addAndMakeVisible (inputCombo);
-            addAndMakeVisible (outputCombo);
-        }
-
         void resized() override
         {
-            auto b = getLocalBounds().reduced (6, 4);
-            caption.setBounds (b.removeFromTop (12));
-            inputCombo.setBounds (b.removeFromTop (14));
-            b.removeFromTop (1);
-            outputCombo.setBounds (b.removeFromTop (14));
-        }
-
-        juce::Label caption;
-        juce::ComboBox inputCombo, outputCombo;
-    };
-
-    //==========================================================================
-    // Shared by InsertsSection and SendsSection: a fixed-height slot that stacks
-    // whatever PluginSlotComponents have been added to it, top to bottom, at a
-    // fixed row height — same rigid-subtraction philosophy as the outer rack,
-    // just scoped to this one section instead of FlexBox-managed.
-    struct RowStackSection : public juce::Component
-    {
-        explicit RowStackSection (juce::String captionText, juce::String emptyText)
-            : placeholderText (std::move (emptyText))
-        {
-            addAndMakeVisible (caption);
-            caption.setText (captionText, juce::dontSendNotification);
-            caption.setFont (juce::FontOptions (9.0f, juce::Font::bold));
-            caption.setColour (juce::Label::textColourId, sectionCaption);
-        }
-
-        int getNumRows() const   { return getNumChildComponents() - 1; } // -1 excludes caption
-
-        void resized() override
-        {
-            auto b = getLocalBounds().reduced (6, 4);
-            caption.setBounds (b.removeFromTop (14));
-
+            auto b = getLocalBounds();
             for (int i = 0; i < getNumChildComponents(); ++i)
             {
-                auto* child = getChildComponent (i);
-
-                if (child == &caption)
-                    continue;
-
-                // 20px slot height per the Lead UX Architect's spec — the compact,
-                // dark, rounded-rect PluginSlotComponent look.
-                child->setBounds (b.removeFromTop (20));
+                getChildComponent (i)->setBounds (b.removeFromTop (22)); // matches the hardware-chip family's row height elsewhere
                 b.removeFromTop (2);
             }
         }
-
-        void paint (juce::Graphics& g) override
-        {
-            if (getNumRows() > 0)
-                return;
-
-            g.setColour (LAF::textDim);
-            g.setFont (juce::FontOptions (9.5f));
-            g.drawText (placeholderText, getLocalBounds().reduced (6, 4).withTop (18).withHeight (14),
-                         juce::Justification::centredLeft);
-        }
-
-        juce::Label caption;
-        juce::String placeholderText;
     };
 
-    // "Minimum-10 Scrolling Grid" (Pro Tools/Ableton hybrid Inserts rack). NOT a
-    // RowStackSection — that type divides nothing and grows unboundedly, which is
-    // exactly wrong here. Instead: a juce::Viewport (scrollbars hidden, to keep
-    // the flat analog-console look — mouse wheel still scrolls it regardless of
-    // scrollbar visibility) wrapping a GridContent that stacks whatever
-    // PluginSlotComponents (real, filled — or empty "ghost" placeholders) have
-    // been added to it at a STRICT, hardcoded insertRowHeight per row, never
-    // divided from the parent's height. rebuild() below always pads the child
-    // list out to at least insertMinVisibleRows total rows (real + ghost), so
-    // an empty track still shows the full 10-slot rack, and a 14-plugin track
-    // scrolls inside the fixed viewport instead of squishing every row down to
-    // illegibility. No section-level DragAndDropTarget is needed any more (the
-    // old "empty track has zero droppable pixels" bug this used to guard
-    // against): ghost rows now cover every row down to the minimum, so there's
-    // always a real, exactly-numbered PluginSlotComponent under the cursor.
-    struct InsertsSection : public juce::Component
+    SendsSection()
     {
-        // Lays out whatever children (real or ghost PluginSlotComponents) have
-        // been added, top to bottom, at insertRowHeight each — the ONE place
-        // that height is enforced. Height is driven by child COUNT, not the
-        // viewport's visible height, which is what makes scrolling (rather than
-        // squishing) happen once more than insertMinVisibleRows are present.
-        struct GridContent : public juce::Component
-        {
-            void refreshHeight (int width)
-            {
-                // Explicit required-height calc from the ACTUAL current child
-                // count (not the nominal insertsViewportHeight constant) —
-                // this is what lets the grid keep growing past the 10-slot
-                // minimum (14 plugins => 15 children => 15 rows tall, not
-                // clamped back down to 10). One gap between each pair of rows,
-                // none trailing after the last — GridContent::resized()'s loop
-                // below still requests one gap per row including the last, but
-                // Rectangle::removeFromTop() clamps at zero rather than going
-                // negative, so that trailing over-request is a harmless no-op,
-                // not a clipped last row.
-                const int totalRows = juce::jmax (insertMinVisibleRows, getNumChildComponents());
-                const int requiredHeight = totalRows * insertRowHeight + (totalRows - 1) * insertRowGap;
-                setBounds (0, 0, width, requiredHeight);
+        addAndMakeVisible (caption);
+        caption.setText ("SENDS", juce::dontSendNotification);
+        caption.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+        caption.setColour (juce::Label::textColourId, sectionCaption);
 
-                // setBounds() only re-invokes resized() when the SIZE actually
-                // changes — but rebuild() always clears and re-adds children
-                // (fresh PluginSlotComponent instances) even when the total row
-                // count (and therefore height) comes out identical to before,
-                // so an unconditional call here is required or the newly
-                // added children would stay at their default (0,0,0,0) bounds.
-                resized();
-            }
+        // "+" add-send affordance — MixerStrip's Sends had NO way to CREATE a
+        // new send at all until this directive; onClick is wired externally
+        // by MixerStrip (see its own addNewSend()), matching how
+        // routingBlock->outputCombo.onChange etc. are wired from outside too.
+        addAndMakeVisible (addSendButton);
 
-            void resized() override
-            {
-                auto b = getLocalBounds();
+        viewport.setViewedComponent (&content, false);
+        viewport.setScrollBarsShown (true, false); // vertical ONLY — the horizontal scrollbar path is fully disabled
+        viewport.setScrollBarThickness (8); // slim gutter; drawScrollbar only paints a 4px thumb centred inside it
+        // Bug fix: ScrollOnDragMode::all meant dragging a Send knob (rather
+        // than empty space) also kicked off the Viewport's own drag-to-scroll,
+        // fighting the knob for the same gesture. The custom auto-hide
+        // scrollbar thumb above is still fully drag-able on its own — this
+        // only removes the "drag anywhere to scroll" shortcut, which is
+        // exactly what was colliding with knob drags.
+        viewport.setScrollOnDragMode (juce::Viewport::ScrollOnDragMode::never);
+        // Bubbles mouseEnter/mouseExit from the viewport AND everything nested
+        // inside it (rows, knobs) up to US, so hovering anywhere in the Sends
+        // area — not just directly over the scrollbar — repaints and reveals
+        // the auto-hide scrollbar (see HardwareSlotLookAndFeel::drawScrollbar's
+        // parentHovering check).
+        viewport.addMouseListener (this, true);
+        addAndMakeVisible (viewport);
+    }
 
-                for (int i = 0; i < getNumChildComponents(); ++i)
-                {
-                    getChildComponent (i)->setBounds (b.removeFromTop (insertRowHeight));
-                    b.removeFromTop (insertRowGap);
-                }
-            }
-        };
+    void mouseEnter (const juce::MouseEvent&) override   { repaint(); }
+    void mouseExit  (const juce::MouseEvent&) override   { repaint(); }
 
-        InsertsSection()
-        {
-            addAndMakeVisible (caption);
-            caption.setText ("INSERTS", juce::dontSendNotification);
-            caption.setFont (juce::FontOptions (9.0f, juce::Font::bold));
-            caption.setColour (juce::Label::textColourId, sectionCaption);
+    int numSendRows() const   { return content.getNumChildComponents(); }
 
-            // Viewport::setScrollBarsShown's first parameter is VERTICAL,
-            // second is HORIZONTAL. Vertical shown when the rack actually
-            // overflows past insertMinVisibleRows; horizontal strictly OFF —
-            // GridContent's rows are always exactly the content's own width
-            // (see refreshContentLayout()'s use of getMaximumVisibleWidth()
-            // below), so there is nothing that should ever need horizontal
-            // scroll. A long plugin name is a text-truncation problem
-            // (PluginSlotComponent::paint()'s ellipsis), not a layout-width one.
-            viewport.setScrollBarsShown (true, false);
-            // ScrollOnDragMode::all (not the default nonHover) so a plain
-            // desktop mouse-drag scrolls too, not just touch/non-hover input.
-            viewport.setScrollOnDragMode (juce::Viewport::ScrollOnDragMode::all);
-            viewport.setViewedComponent (&content, false); // not owned — see member declaration order below
-            addAndMakeVisible (viewport);
-        }
+    void addSendSlot (juce::Component& slot)   { content.addAndMakeVisible (slot); }
 
-        void resized() override
-        {
-            auto b = getLocalBounds().reduced (6, 4);
-            caption.setBounds (b.removeFromTop (insertsCaptionHeight));
-            viewport.setBounds (b);
-            refreshContentLayout();
-        }
-
-        /** Re-lays-out the grid's current children NOW, independent of whether
-            this section's own bounds have changed — see ChannelStripRack::
-            rebuild()'s call to this and ::resized()'s doc comment for why that
-            independence matters (a plain resized()-cascade from the top is not
-            reliable here: setBounds() no-ops, and skips calling resized(),
-            whenever a rect equals the component's current bounds — which is
-            exactly the case every time rebuild() runs off the async plugin-
-            list-changed listener without the strip's own size changing). */
-        void refreshContentLayout()
-        {
-            // getMaximumVisibleWidth(), NOT getWidth() — returns the
-            // viewport's content area width AFTER any vertical scrollbar's
-            // reserved thickness has already been subtracted (JUCE source:
-            // Viewport::getMaximumVisibleWidth() == contentHolder.getWidth(),
-            // and contentHolder is shrunk by scrollbarWidth in
-            // updateVisibleArea() whenever the vertical bar is visible). Using
-            // plain getWidth() here would size every row UNDER the scrollbar,
-            // so the bar visually overlapped/cut into the slot graphics
-            // instead of sitting cleanly outside the content column.
-            content.refreshHeight (viewport.getMaximumVisibleWidth());
-
-            // Belt-and-suspenders: juce::Viewport already listens for its
-            // viewed component's resize via ComponentListener::
-            // componentMovedOrResized (wired in setViewedComponent()) and
-            // recomputes scrollbars/visible area from that automatically, so
-            // this call is redundant on a real content-size change — but it's
-            // a cheap, idempotent way to guarantee the Viewport re-evaluates
-            // its overflow state immediately after THIS method returns,
-            // rather than depending on that listener callback having already
-            // run by the time the caller's own next line executes.
-            viewport.resized();
-        }
-
-        juce::Label caption;
-
-        // Declaration order matters: members are destroyed in REVERSE order, so
-        // content (declared first) is destroyed AFTER viewport (declared
-        // second) — viewport's destructor runs first while content is still
-        // alive, which is required since viewport holds a raw (non-owning)
-        // pointer to it via setViewedComponent (..., false).
-        GridContent content;
-        juce::Viewport viewport;
-    };
-
-    struct SendsSection : public RowStackSection
+    void resized() override
     {
-        SendsSection() : RowStackSection ("SENDS", "(none)") {}
-    };
+        // This component's OWN bounds are the full "Universal Rack Width"
+        // well (see MixerStrip::resized() — same rackMargin as Inserts/the
+        // hand-painted wells), so the scrollbar can dock flush with the
+        // well's true right edge. Buttons/rows still need to START at the
+        // shared rackMargin+rackButtonPadding left edge, so that inset is
+        // applied HERE, on the left only — the right edge stays untouched.
+        auto b = getLocalBounds();
+        auto captionRow = b.removeFromTop (12).withTrimmedLeft (rackButtonPadding);
+        addSendButton.setBounds (captionRow.removeFromRight (12).reduced (1));
+        caption.setBounds (captionRow);
+        b.removeFromTop (2);
+        b = b.withTrimmedLeft (rackButtonPadding);
 
-    te::AudioTrack::Ptr track;
-    CrateWorkflowManager& workflow;
+        viewport.setBounds (b);
 
-    RoutingSection routingSection;
-    InsertsSection insertsSection;
-    SendsSection sendsSection;
+        constexpr int rowH = 24; // 22 + 2 gap
+        const int contentH = juce::jmax (b.getHeight(), numSendRows() * rowH);
 
-    std::vector<std::unique_ptr<PluginSlotComponent>> insertSlots;
-    std::vector<std::unique_ptr<PluginSlotComponent>> ghostInsertSlots; // padding rows, see InsertsSection
-    std::vector<std::unique_ptr<PluginSlotComponent>> sendSlots;
-    std::vector<std::unique_ptr<juce::Slider>> sendLevelSliders; // trailing controls; not owned by PluginSlotComponent
+        // Axis lock (the "jelly" bug): content width is set to the viewport's
+        // available width MINUS the scrollbar gutter whenever a scrollbar is
+        // actually needed — so the viewed component's width can never exceed
+        // the visible area even by a single pixel, which is what silently
+        // enables free horizontal drag-panning in JUCE's Viewport. When no
+        // scrollbar is needed, content just fills the full width.
+        const bool needsScrollbar = contentH > b.getHeight();
+        const int contentW = b.getWidth() - (needsScrollbar ? viewport.getScrollBarThickness() : 0);
 
-    // Maps outputCombo item id -> the routing action to perform — avoids parallel
-    // arrays keyed by index, which drift the moment items are added conditionally
-    // (the "Track: X" separator/section makes indices non-contiguous with itemId).
-    std::map<int, std::function<void()>> outputComboActions;
+        content.setBounds (0, 0, juce::jmax (0, contentW), contentH);
+        content.resized();
+    }
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChannelStripRack)
+    void paint (juce::Graphics& g) override
+    {
+        if (numSendRows() > 0)
+            return;
+
+        g.setColour (LAF::colorTextSecondary);
+        g.setFont (juce::FontOptions (9.5f));
+        g.drawText ("(none)", getLocalBounds().reduced (4).withTop (14).withHeight (14),
+                     juce::Justification::centredLeft);
+    }
+
+    juce::Label caption;
+    AddIconButton addSendButton;
+    juce::Viewport viewport;
+    Content content;
 };
 
 //==============================================================================
@@ -596,7 +369,6 @@ MixerStrip::MixerStrip (te::AudioTrack::Ptr trackToControl, CrateWorkflowManager
         // inserting duplicates.
         volumePlugin = track->getVolumePlugin();
         meterPlugin = track->pluginList.findFirstPluginOfType<te::LevelMeterPlugin>();
-        trackNameLabel.setText (track->getName(), juce::dontSendNotification);
 
         if (meterPlugin == nullptr)
         {
@@ -609,54 +381,76 @@ MixerStrip::MixerStrip (te::AudioTrack::Ptr trackToControl, CrateWorkflowManager
             meterPlugin->measurer.addClient (meterClient);
     }
 
-    rack = std::make_unique<ChannelStripRack> (track, workflow);
-
-    // Applies to the WHOLE rack subtree via JUCE's parent-chain LookAndFeel
-    // lookup (RoutingSection's In/Out ComboBoxes, the Sends' level sliders) —
-    // volumeFader/panKnob below are a separate sibling subtree and need their
-    // own explicit setLookAndFeel() call, done further down.
-    rack->setLookAndFeel (&mixerLookAndFeel);
-
-    rack->onSlotSelected = [this] (te::Plugin* p)
-    {
-        if (onPluginSlotSelected)
-            onPluginSlotSelected (track.get(), p);
-    };
-    addChildComponent (*rack); // addChildComponent, not addAndMakeVisible — starts hidden, setRackExpanded() controls visibility
-    rack->setVisible (rackExpanded);
-
+    // ---- L1: Track name plate — bordered, distinct coloured rectangle ---------
     addAndMakeVisible (trackNameLabel);
+    trackNameLabel.setText (track != nullptr ? track->getName() : juce::String ("Track"), juce::dontSendNotification);
     trackNameLabel.setJustificationType (juce::Justification::centred);
-    trackNameLabel.setColour (juce::Label::textColourId, LAF::text);
-    trackNameLabel.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    trackNameLabel.setColour (juce::Label::textColourId, LAF::colorTextPrimary);
+    trackNameLabel.setColour (juce::Label::outlineColourId, LAF::colorFaderGroove);
+    trackNameLabel.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+    // Clicks pass THROUGH to MixerStrip so mouseDown/mouseDoubleClick can open
+    // the rename+colour editor over the plate (a plain Label has no double/right
+    // click hooks of its own).
+    trackNameLabel.setInterceptsMouseClicks (false, false);
+    trackNameLabel.setTooltip ("Click to mute. Right-click or double-click to rename/recolour.");
+    applyTrackColourToPlate();
 
-    // True Mute polarity — MUST match TrackHeaderComponent's ToggleBlock exactly:
-    // ON/lit (studio orange) = muted, OFF/dark = audible. Toggle state maps
-    // DIRECTLY to track->isMuted(), no inversion.
-    addAndMakeVisible (muteButton);
-    muteButton.setClickingTogglesState (true);
-    muteButton.setColour (juce::TextButton::buttonOnColourId, muteOnColour);
-    muteButton.setToggleState (track != nullptr && track->isMuted (false), juce::dontSendNotification);
-    muteButton.onClick = [this]
-    {
-        if (track != nullptr)
-            track->setMute (muteButton.getToggleState());
-    };
-
+    // ---- R/S/I triad -----------------------------------------------------------
+    // GhostButtonLookAndFeel — OFF is flush with the track background (not
+    // TheCrateLookAndFeel's app-wide ghosted-grey chip), ON pops a small matte
+    // cap with a drop shadow. Scoped to just these 3 buttons (Mute is gone —
+    // the name plate is the Mute toggle now).
     addAndMakeVisible (soloButton);
+    soloButton.setLookAndFeel (&ghostButtonLookAndFeel);
     soloButton.setClickingTogglesState (true);
     soloButton.setColour (juce::TextButton::buttonOnColourId, soloOnColour);
     soloButton.setToggleState (track != nullptr && track->isSolo (false), juce::dontSendNotification);
     soloButton.onClick = [this]
     {
-        if (track != nullptr)
-            track->setSolo (soloButton.getToggleState());
+        if (track == nullptr)
+            return;
+
+        const bool newState = soloButton.getToggleState();
+        track->edit.getUndoManager().beginNewTransaction ("Toggle Solo: " + track->getName());
+        track->edit.getUndoManager().perform (new TrackMuteSoloAction (track, true, newState));
     };
 
-    // Pro Tools/Logic-grade console chrome, scoped to JUST these two controls —
-    // not the app-wide default LookAndFeel (see CrateMixerLookAndFeel.h's doc
-    // comment). Cleared explicitly in the destructor before mixerLookAndFeel is
-    // destroyed.
+    // ---- L3: Record enable / Input monitor (visual placeholders) --------------
+    // No engine wiring yet (record-arm lives in TrackHeaderComponent; input
+    // monitoring routing is a later phase) — honest, disclosed placeholders.
+    addAndMakeVisible (recordButton);
+    recordButton.setLookAndFeel (&ghostButtonLookAndFeel);
+    recordButton.setClickingTogglesState (true);
+    recordButton.setColour (juce::TextButton::buttonOnColourId, recordOnColour);
+    recordButton.setTooltip ("Record enable - not wired to the engine yet (display only).");
+
+    addAndMakeVisible (inputMonitorButton);
+    inputMonitorButton.setLookAndFeel (&ghostButtonLookAndFeel);
+    inputMonitorButton.setClickingTogglesState (true);
+    inputMonitorButton.setColour (juce::TextButton::buttonOnColourId, LAF::colorNeonCyan);
+    inputMonitorButton.setTooltip ("Input monitor - not wired to the engine yet (display only).");
+
+    // ---- L4: Sexy fader (CrateMixerLookAndFeel) -------------------------------
+    addAndMakeVisible (volumeFader);
+    volumeFader.setLookAndFeel (&mixerLookAndFeel);
+    volumeFader.setRange (-60.0, 6.0, 0.1);
+    volumeFader.setDoubleClickReturnValue (true, 0.0);
+
+    // ---- L5: dB readout boxes (fader position | peak level) -------------------
+    auto styleReadout = [] (juce::Label& l)
+    {
+        l.setJustificationType (juce::Justification::centred);
+        l.setColour (juce::Label::textColourId, LAF::lcdText);
+        l.setColour (juce::Label::backgroundColourId, LAF::lcdBackground);
+        l.setFont (juce::FontOptions (9.5f));
+    };
+    addAndMakeVisible (faderPositionLabel);
+    styleReadout (faderPositionLabel);
+    addAndMakeVisible (peakLevelLabel);
+    styleReadout (peakLevelLabel);
+    peakLevelLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+
+    // ---- L6: Pan knob ---------------------------------------------------------
     addAndMakeVisible (panKnob);
     panKnob.setLookAndFeel (&mixerLookAndFeel);
     panKnob.setRange (-1.0, 1.0, 0.01);
@@ -664,27 +458,78 @@ MixerStrip::MixerStrip (te::AudioTrack::Ptr trackToControl, CrateWorkflowManager
     panKnob.setRotaryParameters (juce::MathConstants<float>::pi * 1.2f,
                                   juce::MathConstants<float>::pi * 2.8f, true);
 
-    addAndMakeVisible (volumeFader);
-    volumeFader.setLookAndFeel (&mixerLookAndFeel);
-    volumeFader.setRange (-60.0, 6.0, 0.1);
-    volumeFader.setDoubleClickReturnValue (true, 0.0);
+    // Pan value readout — Cubase-style "C" / "20 L" / "20 R" directly below
+    // the knob, updated from refreshFromEngine() (initial + engine-driven) and
+    // panKnob.onValueChange (immediate drag feedback) below.
+    addAndMakeVisible (panValueLabel);
+    panValueLabel.setJustificationType (juce::Justification::centred);
+    panValueLabel.setColour (juce::Label::textColourId, CrateColors::NeonBlue); // "Pan readouts" — explicitly NeonBlue per the palette directive
+    panValueLabel.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+    panValueLabel.setText ("C", juce::dontSendNotification);
 
-    addAndMakeVisible (volumeValueLabel);
-    volumeValueLabel.setJustificationType (juce::Justification::centred);
-    volumeValueLabel.setColour (juce::Label::textColourId, LAF::textDim);
-    volumeValueLabel.setFont (juce::FontOptions (11.0f));
+    // ---- L9: Routing (Output slot + Group slot) -------------------------------
+    routingBlock = std::make_unique<RoutingBlock>();
+    addChildComponent (*routingBlock);
+    // outputCombo is the ONLY thing inside RoutingBlock routed through a
+    // LookAndFeel at all — groupSlot draws its own matching bevel by hand
+    // (see RoutingBlock::paint()), so this is scoped to the combo itself
+    // rather than the whole block.
+    routingBlock->outputCombo.setLookAndFeel (&hardwareSlotLookAndFeel);
+    routingBlock->outputCombo.setJustificationType (juce::Justification::centred); // centre "OUT 1+2" like every other hardware chip
+    populateOutputCombo();
+    routingBlock->outputCombo.onChange = [this] { applyOutputComboSelection(); };
+
+    // ---- L10: Sends -----------------------------------------------------------
+    sendsSection = std::make_unique<SendsSection>();
+    sendsSection->setLookAndFeel (&mixerLookAndFeel);
+    sendsSection->viewport.setLookAndFeel (&hardwareSlotLookAndFeel); // overrides the inherited mixerLookAndFeel just for the scrollbar
+    sendsSection->addSendButton.onClick = [this] { addNewSend(); };
+    addChildComponent (*sendsSection);
+
+    // ---- L11: Inserts (shared InsertsRackComponent) ---------------------------
+    insertsSection = std::make_unique<InsertsRackComponent>();
+    insertsSection->onSlotSelected = [this] (te::Plugin* p)
+    {
+        if (onPluginSlotSelected)
+            onPluginSlotSelected (track.get(), p);
+    };
+    addChildComponent (*insertsSection);
+    if (track != nullptr)
+        insertsSection->rebuild (*track, workflow);
+
+    // ---- L12: Channel Comp block (opens CrateCompressorPopup) -----------------
+    // NOT setClickingTogglesState: the toggle state is driven manually so it
+    // strictly tracks the popup's real lifecycle (see openChannelCompPopup() /
+    // componentBeingDeleted()) rather than flipping on every raw click and
+    // getting stuck lit after the popup dismisses.
+    addChildComponent (channelCompButton);
+    channelCompButton.setLookAndFeel (&hardwareSlotLookAndFeel);
+    channelCompButton.onClick = [this] { openChannelCompPopup(); };
+
+    // ---- L13: EQ display ------------------------------------------------------
+    eqThumbnail = std::make_unique<CrateEQThumbnail>();
+    addChildComponent (*eqThumbnail);
+
+    // ---- L14: Settings --------------------------------------------------------
+    addChildComponent (settingsButton);
+    settingsButton.setLookAndFeel (&hardwareSlotLookAndFeel);
+    settingsButton.setTooltip ("Channel-strip settings / presets - placeholder.");
+
+    // Deep-stack visibility follows the current expand state.
+    const bool showDeep = rackExpanded;
+    routingBlock->setVisible (showDeep);
+    sendsSection->setVisible (showDeep);
+    insertsSection->setVisible (showDeep);
+    channelCompButton.setVisible (showDeep);
+    eqThumbnail->setVisible (showDeep);
+    settingsButton.setVisible (showDeep);
+
+    rebuildSends();
 
     if (volumePlugin != nullptr)
     {
         refreshFromEngine();
 
-        // Bracket drags with gesture calls so TE treats each as a single automation
-        // move (matters once automation recording lands in a later phase) rather than
-        // a stream of discrete parameter writes. beginNewTransaction() is a SEPARATE
-        // concern — gesture calls don't touch UndoManager at all — and is what
-        // actually coalesces the whole drag into one named Undo step instead of one
-        // step per mouse-move tick (the "Visual Undo History List" the Lead
-        // Architect wants needs a real, single, human-readable name per action).
         volumeFader.onDragStart = [this]
         {
             volumePlugin->volParam->getEdit().getUndoManager().beginNewTransaction (
@@ -692,12 +537,11 @@ MixerStrip::MixerStrip (te::AudioTrack::Ptr trackToControl, CrateWorkflowManager
             volumePlugin->volParam->parameterChangeGestureBegin();
         };
         volumeFader.onDragEnd = [this] { volumePlugin->volParam->parameterChangeGestureEnd(); };
-
         volumeFader.onValueChange = [this]
         {
             const auto db = (float) volumeFader.getValue();
             volumePlugin->setVolumeDb (db);
-            volumeValueLabel.setText (juce::String (db, 1) + " dB", juce::dontSendNotification);
+            faderPositionLabel.setText (juce::String (db, 1), juce::dontSendNotification);
         };
 
         panKnob.onDragStart = [this]
@@ -707,11 +551,13 @@ MixerStrip::MixerStrip (te::AudioTrack::Ptr trackToControl, CrateWorkflowManager
             volumePlugin->panParam->parameterChangeGestureBegin();
         };
         panKnob.onDragEnd = [this] { volumePlugin->panParam->parameterChangeGestureEnd(); };
-        panKnob.onValueChange = [this] { volumePlugin->setPan ((float) panKnob.getValue()); };
+        panKnob.onValueChange = [this]
+        {
+            const auto pan = (float) panKnob.getValue();
+            volumePlugin->setPan (pan);
+            panValueLabel.setText (panValueText (pan), juce::dontSendNotification);
+        };
 
-        // Native TE listeners — fire when volume/pan change from anywhere other than
-        // this strip (automation curve, the Arrangement header's own volume slider,
-        // a script), keeping both controls honest.
         volumePlugin->volParam->addListener (this);
         volumePlugin->panParam->addListener (this);
     }
@@ -728,7 +574,18 @@ MixerStrip::~MixerStrip()
 
     volumeFader.setLookAndFeel (nullptr);
     panKnob.setLookAndFeel (nullptr);
-    rack->setLookAndFeel (nullptr);
+    channelCompButton.setLookAndFeel (nullptr);
+    settingsButton.setLookAndFeel (nullptr);
+    soloButton.setLookAndFeel (nullptr);
+    recordButton.setLookAndFeel (nullptr);
+    inputMonitorButton.setLookAndFeel (nullptr);
+
+    if (routingBlock != nullptr) routingBlock->outputCombo.setLookAndFeel (nullptr);
+    if (sendsSection != nullptr)
+    {
+        sendsSection->viewport.setLookAndFeel (nullptr);
+        sendsSection->setLookAndFeel (nullptr);
+    }
 
     if (volumePlugin != nullptr)
     {
@@ -751,25 +608,339 @@ void MixerStrip::setRackExpanded (bool shouldBeExpanded)
     rackExpanded = shouldBeExpanded;
 
     if (rackExpanded)
-        rack->rebuild(); // picks up any plugin loaded/removed while collapsed
+        rebuildSends(); // pick up any send added while collapsed (inserts self-refresh)
 
-    rack->setVisible (rackExpanded);
+    routingBlock->setVisible (rackExpanded);
+    sendsSection->setVisible (rackExpanded);
+    insertsSection->setVisible (rackExpanded);
+    channelCompButton.setVisible (rackExpanded);
+    eqThumbnail->setVisible (rackExpanded);
+    settingsButton.setVisible (rackExpanded);
 
-    // Deliberately NOT calling resized() here. This strip's own bounds are still
-    // whatever they were before this call — the parent (MixerComponent::
-    // StripRowContent) hasn't resized us to the new preferred height yet, since
-    // that depends on getPreferredHeight(), which we just changed. Laying out now
-    // would compute rack->setBounds() against the OLD (still-collapsed) height and
-    // crush everything below it. The parent is responsible for calling setBounds()
-    // — and therefore resized() — once it has actually given us correct bounds;
-    // see StripRowContent::resized()'s explicit strip->resized() call.
+    // Deliberately NOT calling resized() here — the parent
+    // (MixerComponent::StripRowContent) hasn't yet resized us to the new
+    // preferred height (which just changed), so laying out now would compute
+    // against the OLD height. The parent calls setBounds()/resized() once it
+    // has given us correct bounds; see StripRowContent::resized().
 }
 
 int MixerStrip::getPreferredHeight() const
 {
-    return collapsedStripHeight + (rackExpanded ? rackHeight : 0);
+    return coreStripHeight() + (rackExpanded ? deepStackHeight() : 0);
 }
 
+//==============================================================================
+void MixerStrip::openChannelCompPopup()
+{
+    channelCompButton.setToggleState (true, juce::dontSendNotification);
+
+    auto popup = std::make_unique<CrateCompressorPopup> (&mixerLookAndFeel);
+    auto& box = juce::CallOutBox::launchAsynchronously (std::move (popup),
+                                                        channelCompButton.getScreenBounds(), nullptr);
+    // Un-toggle the moment the CallOutBox is dismissed/destroyed — clicking the
+    // button again, or anywhere outside the popup, dismisses it (JUCE consumes
+    // that click, so onClick does NOT re-fire), and this listener resets the
+    // button so it can never stay stuck cyan.
+    box.addComponentListener (this);
+}
+
+void MixerStrip::componentBeingDeleted (juce::Component&)
+{
+    channelCompButton.setToggleState (false, juce::dontSendNotification);
+}
+
+//==============================================================================
+void MixerStrip::mouseDown (const juce::MouseEvent& e)
+{
+    if (! trackNameLabel.getBounds().contains (e.getPosition()))
+        return;
+
+    if (e.mods.isPopupMenu())
+    {
+        showNameColourEditor();
+        return;
+    }
+
+    // The Track Name Plate IS the Mute toggle now (Ableton Mute paradigm) —
+    // plain left-click toggles. Guarded to numberOfClicks() == 1 so the
+    // second click of a double-click (which separately opens the rename/
+    // colour editor via mouseDoubleClick below) doesn't re-toggle it back off.
+    if (e.getNumberOfClicks() == 1 && track != nullptr)
+    {
+        const bool newState = ! track->isMuted (false);
+        track->edit.getUndoManager().beginNewTransaction ("Toggle Mute: " + track->getName());
+        track->edit.getUndoManager().perform (new TrackMuteSoloAction (track, false, newState));
+    }
+}
+
+void MixerStrip::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    if (trackNameLabel.getBounds().contains (e.getPosition()))
+        showNameColourEditor();
+}
+
+void MixerStrip::applyTrackColourToPlate()
+{
+    // Ableton Mute paradigm — the name plate itself IS the Mute toggle (see
+    // mouseDown()): unmuted shows the track's own colour with bright/white
+    // text (the "Active" identity plate); muted flattens to dark grey with
+    // dimmed text, same visual language GhostButtonLookAndFeel's OFF state
+    // uses elsewhere. Falls back to a neutral blue when the track has no
+    // colour set yet (te::Track's default is a transparent Colour()).
+    trackAccentColour = (track != nullptr && ! track->getColour().isTransparent())
+                            ? track->getColour()
+                            : juce::Colour (0xff30506a);
+
+    const bool isMuted = track != nullptr && track->isMuted (false);
+
+    if (isMuted)
+    {
+        trackNameLabel.setColour (juce::Label::backgroundColourId, CrateColors::DarkBackground);
+        trackNameLabel.setColour (juce::Label::textColourId, CrateColors::BrandGray);
+    }
+    else
+    {
+        trackNameLabel.setColour (juce::Label::backgroundColourId, trackAccentColour);
+        trackNameLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+    }
+
+    trackNameLabel.repaint();
+}
+
+void MixerStrip::showNameColourEditor()
+{
+    if (track == nullptr)
+        return;
+
+    juce::Component::SafePointer<MixerStrip> safeThis (this);
+
+    CrateTrackEditor::showNameColourMenu (
+        this,
+        trackNameLabel.getScreenBounds(),
+        track->getName(),
+        track->getColour(),
+        [safeThis] (juce::String newName) // onRename
+        {
+            if (safeThis != nullptr && safeThis->track != nullptr)
+            {
+                safeThis->track->edit.getUndoManager().beginNewTransaction ("Rename Track");
+                safeThis->track->setName (newName);
+            }
+        },
+        [safeThis]                        // onColourGestureBegin
+        {
+            if (safeThis != nullptr && safeThis->track != nullptr)
+                safeThis->track->edit.getUndoManager().beginNewTransaction ("Set Track Colour");
+        },
+        [safeThis] (juce::Colour c)       // onColour (live)
+        {
+            if (safeThis != nullptr && safeThis->track != nullptr)
+                safeThis->track->setColour (c);
+        });
+}
+
+//==============================================================================
+void MixerStrip::populateOutputCombo()
+{
+    auto& combo = routingBlock->outputCombo;
+    combo.clear (juce::dontSendNotification);
+    outputComboActions.clear();
+
+    if (track == nullptr)
+        return;
+
+    juce::StringArray deviceNames, aliases;
+    juce::BigInteger hasAudio, hasMidi;
+    te::TrackOutput::getPossibleOutputDeviceNames (te::getAudioTracks (track->edit), deviceNames, aliases, hasAudio, hasMidi);
+
+    int itemId = 1;
+
+    for (auto& deviceName : deviceNames)
+    {
+        combo.addItem (deviceName, itemId);
+        outputComboActions[itemId] = [this, deviceName] { track->getOutput().setOutputToDeviceID (deviceName); };
+        ++itemId;
+    }
+
+    bool addedSeparator = false;
+
+    for (auto* other : te::getAudioTracks (track->edit))
+    {
+        if (other == track.get())
+            continue;
+
+        if (! addedSeparator)
+        {
+            combo.addSeparator();
+            addedSeparator = true;
+        }
+
+        combo.addItem ("Track: " + other->getName(), itemId);
+        outputComboActions[itemId] = [this, other] { track->getOutput().setOutputToTrack (other); };
+        ++itemId;
+    }
+
+    const auto currentDescription = track->getOutput().getDescriptiveOutputName();
+
+    for (int i = 0; i < combo.getNumItems(); ++i)
+    {
+        if (combo.getItemText (i) == currentDescription)
+        {
+            combo.setSelectedId (combo.getItemId (i), juce::dontSendNotification);
+            break;
+        }
+    }
+}
+
+void MixerStrip::applyOutputComboSelection()
+{
+    const auto it = outputComboActions.find (routingBlock->outputCombo.getSelectedId());
+
+    if (it != outputComboActions.end())
+        it->second();
+}
+
+void MixerStrip::rebuildSends()
+{
+    sendSlots.clear();
+
+    if (track == nullptr)
+    {
+        sendsSection->resized();
+        return;
+    }
+
+    for (auto* p : track->pluginList)
+    {
+        auto* send = dynamic_cast<te::AuxSendPlugin*> (p);
+        if (send == nullptr)
+            continue;
+
+        // CrateSendSlot — the SAME shared destination-chip + mini-knob
+        // component the Dual-Strip Inspector uses (CrateTrackInspectorComponent),
+        // now with the hardware-slot bevel baked in. Replaces the old
+        // PluginSlotComponent + raw LinearHorizontal juce::Slider pair.
+        auto slot = std::make_unique<CrateSendSlot> ("Bus " + juce::String (send->getBusNumber()));
+        slot->setLookAndFeelForKnob (&mixerLookAndFeel); // pan_knob.png image asset, same as the main Pan knob — see Revert Send Knobs directive
+        slot->setBypassState (send->isEnabled(), juce::dontSendNotification);
+        slot->onBypassToggle = [send] (bool isOn) { send->setEnabled (isOn); };
+
+        if (send->gain != nullptr)
+        {
+            auto* gainParam = send->gain.get();
+            const auto range = gainParam->getValueRange();
+            auto& knob = slot->getAmountKnob();
+            knob.setRange (range.getStart(), range.getEnd(), 0.001);
+            knob.setValue (gainParam->getCurrentValue(), juce::dontSendNotification);
+
+            const auto busNumber = send->getBusNumber();
+            knob.onDragStart = [gainParam, busNumber]
+            {
+                gainParam->getEdit().getUndoManager().beginNewTransaction ("Tweak Send " + juce::String (busNumber) + " Level");
+                gainParam->parameterChangeGestureBegin();
+            };
+            knob.onDragEnd = [gainParam] { gainParam->parameterChangeGestureEnd(); };
+
+            slot->onAmountChanged = [gainParam] (float newValue) { gainParam->setParameter (newValue, juce::sendNotificationSync); };
+        }
+
+        sendsSection->addSendSlot (*slot);
+        sendSlots.push_back (std::move (slot));
+    }
+
+    sendsSection->resized();
+}
+
+// Dynamic Sends Routing directive, ported from CrateTrackInspectorComponent's
+// own addNewSend()/createSendToBus() — MixerStrip's Sends had no way to
+// CREATE a new send at all before this; see AddIconButton's own wiring in
+// SendsSection's constructor. Strict Sends Menu Logic: if zero buses exist
+// anywhere in the project yet, only "Create New Bus..." is offered — never a
+// fabricated "Add Send to Bus 1" for a bus that doesn't actually exist.
+void MixerStrip::addNewSend()
+{
+    if (track == nullptr)
+        return;
+
+    auto& edit = track->edit;
+    const auto scan = SendBusUtils::scanBuses (edit, track.get());
+    const auto& busesInUseAnywhere = scan.busesInUseAnywhere;
+    const auto& busesThisTrackAlreadyUses = scan.busesThisTrackAlreadyUses;
+
+    // UX Fix (Grey-out, not hide): EVERY bus that exists anywhere in the
+    // project is listed, so the user gets visual confirmation the routing
+    // graph is intact — a bus this track already sends to just shows
+    // disabled (greyed-out, unclickable) instead of silently disappearing,
+    // which used to read as "the system lost track of it."
+    juce::PopupMenu menu;
+    std::map<int, int> menuIdToBusNumber;
+    int nextItemId = 1;
+
+    for (int bus : busesInUseAnywhere)
+    {
+        const bool alreadyRouted = busesThisTrackAlreadyUses.count (bus) > 0;
+        const juce::String label = alreadyRouted ? ("Bus " + juce::String (bus) + " (Already Sending)")
+                                                  : ("Add Send to Bus " + juce::String (bus));
+
+        menu.addItem (nextItemId, label, ! alreadyRouted);
+        menuIdToBusNumber[nextItemId] = bus;
+        ++nextItemId;
+    }
+
+    if (! menuIdToBusNumber.empty())
+        menu.addSeparator();
+
+    const int createNewBusItemId = nextItemId;
+    menu.addItem (createNewBusItemId, "Create New Bus...");
+
+    juce::Component::SafePointer<MixerStrip> safeThis (this);
+    te::AudioTrack::Ptr trackAtMenuOpenTime = track;
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (sendsSection->addSendButton),
+        [safeThis, trackAtMenuOpenTime, menuIdToBusNumber, createNewBusItemId, busesInUseAnywhere] (int result)
+        {
+            if (result == 0 || safeThis == nullptr || safeThis->track != trackAtMenuOpenTime)
+                return; // dismissed, or the strip's track moved on before the choice was made
+
+            int busNumber = -1;
+
+            if (result == createNewBusItemId)
+            {
+                busNumber = 1;
+                while (busesInUseAnywhere.count (busNumber) > 0)
+                    ++busNumber;
+            }
+            else if (auto it = menuIdToBusNumber.find (result); it != menuIdToBusNumber.end())
+            {
+                busNumber = it->second;
+            }
+
+            if (busNumber > 0)
+                safeThis->createSendToBus (busNumber);
+        });
+}
+
+void MixerStrip::createSendToBus (int busNumber)
+{
+    if (track == nullptr)
+        return;
+
+    auto& edit = track->edit;
+    auto plugin = edit.getPluginCache().createNewPlugin (te::AuxSendPlugin::xmlTypeName, juce::PluginDescription());
+
+    if (plugin == nullptr)
+        return;
+
+    if (auto* send = dynamic_cast<te::AuxSendPlugin*> (plugin.get()))
+        send->busNumber = busNumber;
+
+    edit.getUndoManager().beginNewTransaction ("Add Send to Bus " + juce::String (busNumber) + ": " + track->getName());
+    track->pluginList.insertPlugin (plugin, -1, nullptr);
+
+    rebuildSends();
+}
+
+//==============================================================================
 void MixerStrip::refreshFromEngine()
 {
     if (volumePlugin == nullptr)
@@ -777,23 +948,17 @@ void MixerStrip::refreshFromEngine()
 
     const auto currentDb = volumePlugin->getVolumeDb();
     volumeFader.setValue (currentDb, juce::dontSendNotification);
-    volumeValueLabel.setText (juce::String (currentDb, 1) + " dB", juce::dontSendNotification);
-
-    panKnob.setValue (volumePlugin->getPan(), juce::dontSendNotification);
+    faderPositionLabel.setText (juce::String (currentDb, 1), juce::dontSendNotification);
+    const auto pan = volumePlugin->getPan();
+    panKnob.setValue (pan, juce::dontSendNotification);
+    panValueLabel.setText (panValueText (pan), juce::dontSendNotification);
 }
 
 void MixerStrip::currentValueChanged (te::AutomatableParameter&)
 {
-    // SafePointer, not raw this: if a track deletion (Phase 1's synchronous
-    // teardown path) destroys this strip between the listener firing and this
-    // deferred lambda running, the lambda no-ops instead of touching freed memory.
     juce::Component::SafePointer<MixerStrip> safeThis (this);
-
     juce::MessageManager::callAsync ([safeThis]
     {
-        // setValue(..., dontSendNotification) inside refreshFromEngine() means this
-        // can't re-trigger onValueChange, so no feedback loop against the
-        // slider/knob->engine path.
         if (safeThis != nullptr)
             safeThis->refreshFromEngine();
     });
@@ -804,16 +969,33 @@ void MixerStrip::valueTreePropertyChanged (juce::ValueTree& v, const juce::Ident
     if (track == nullptr || v != track->state)
         return;
 
-    if (property != te::IDs::mute && property != te::IDs::solo)
-        return;
-
     juce::Component::SafePointer<MixerStrip> safeThis (this);
 
-    juce::MessageManager::callAsync ([safeThis]
+    if (property == te::IDs::mute || property == te::IDs::solo)
     {
-        if (safeThis != nullptr)
-            safeThis->refreshMuteSoloFromEngine();
-    });
+        juce::MessageManager::callAsync ([safeThis]
+        {
+            if (safeThis != nullptr)
+                safeThis->refreshMuteSoloFromEngine();
+        });
+        return;
+    }
+
+    // Name / colour changed anywhere (this Mixer plate, the Arrangement
+    // TrackHeader, Undo/Redo) — reflect it on the plate. Bidirectional sync
+    // comes for free: both views mutate the SAME track ValueTree and both
+    // listen to it.
+    if (property == te::IDs::name || property == te::IDs::colour)
+    {
+        juce::MessageManager::callAsync ([safeThis]
+        {
+            if (safeThis == nullptr || safeThis->track == nullptr)
+                return;
+
+            safeThis->trackNameLabel.setText (safeThis->track->getName(), juce::dontSendNotification);
+            safeThis->applyTrackColourToPlate();
+        });
+    }
 }
 
 void MixerStrip::refreshMuteSoloFromEngine()
@@ -821,7 +1003,10 @@ void MixerStrip::refreshMuteSoloFromEngine()
     if (track == nullptr)
         return;
 
-    muteButton.setToggleState (track->isMuted (false), juce::dontSendNotification);
+    // Mute has no dedicated button anymore — the name plate IS the Mute
+    // toggle (see applyTrackColourToPlate()), so re-syncing its look covers
+    // mute changes made elsewhere (Arrangement TrackHeader, Undo/Redo).
+    applyTrackColourToPlate();
     soloButton.setToggleState (track->isSolo (false), juce::dontSendNotification);
 }
 
@@ -831,7 +1016,6 @@ void MixerStrip::valueTreeChildAdded (juce::ValueTree& parentTree, juce::ValueTr
         return;
 
     juce::Component::SafePointer<MixerStrip> safeThis (this);
-
     juce::MessageManager::callAsync ([safeThis]
     {
         if (safeThis != nullptr)
@@ -845,7 +1029,6 @@ void MixerStrip::valueTreeChildRemoved (juce::ValueTree& parentTree, juce::Value
         return;
 
     juce::Component::SafePointer<MixerStrip> safeThis (this);
-
     juce::MessageManager::callAsync ([safeThis]
     {
         if (safeThis != nullptr)
@@ -855,13 +1038,11 @@ void MixerStrip::valueTreeChildRemoved (juce::ValueTree& parentTree, juce::Value
 
 void MixerStrip::refreshRackFromPluginListChange()
 {
-    // rack always exists (constructed unconditionally in the constructor) — only
-    // its visibility depends on rackExpanded — so this is safe to call regardless
-    // of current expand state; a collapsed rack just rebuilds invisibly, ready for
-    // whenever it's next expanded.
-    rack->rebuild();
+    // Inserts self-refresh via their own listener; Sends are rebuilt here.
+    rebuildSends();
 }
 
+//==============================================================================
 void MixerStrip::timerCallback()
 {
     if (meterPlugin == nullptr)
@@ -871,12 +1052,6 @@ void MixerStrip::timerCallback()
     const auto levelR = meterClient.getAndClearAudioLevel (1);
     meterLevelDb = juce::jmax (levelL.dB, levelR.dB);
 
-    // Peak Hold: entirely UI-side (TE's LevelMeasurer only reports near-instant
-    // block peaks, not a held/decaying value) — snaps up instantly to a new
-    // higher level, then decays at a fixed dB/sec once nothing higher has come
-    // in. Only ever touched from this timer callback (message thread), reading
-    // already-drained values out of meterClient (lock-free/atomic on the audio
-    // side) — zero allocation, zero audio-thread access.
     const auto nowMs = juce::Time::getMillisecondCounter();
 
     if (meterLevelDb >= peakHoldDb)
@@ -891,22 +1066,118 @@ void MixerStrip::timerCallback()
         peakHoldDb = juce::jmax (meterLevelDb, peakHoldDb - decayDbPerSecond * elapsedSeconds);
     }
 
+    peakLevelLabel.setText (peakHoldDb > meterFloorDb + 0.5f ? juce::String (peakHoldDb, 1)
+                                                             : juce::String ("-inf"),
+                            juce::dontSendNotification);
+
     repaint();
 }
 
 void MixerStrip::paint (juce::Graphics& g)
 {
-    g.fillAll (LAF::panel);
-    g.setColour (LAF::background);
+    g.fillAll (LAF::colorHardware);
+    g.setColour (LAF::colorTheVoid);
     g.drawVerticalLine (getWidth() - 1, 0.0f, (float) getHeight());
 
-    if (rackExpanded)
-        g.drawHorizontalLine (rackHeight, 0.0f, (float) getWidth());
+    // ---- Recessed Hardware Plate (Routing well) -------------------------------
+    // Replaces the earlier engraved separator lines — those read as too weak
+    // for the Manifesto's "SSL Tactile Experience". This carves an actual
+    // sunken well housing ONLY the currently-visible Routing chips (OUT 1+2
+    // alone, or stacked with the Group chip) — the Pan knob is deliberately
+    // EXTRACTED below it, on the plain track background; Read is gone
+    // entirely (Eradicate directive). Bounds come from the REAL live control
+    // bounds (routingBlock's own getBounds(), which is already sized to
+    // RoutingBlock::getPreferredHeight()), not recomputed layout math, so the
+    // well can never drift out of sync with wherever resized() actually put
+    // those controls or wrap a hidden Group chip's dead space. Only
+    // meaningful while the deep stack (routingBlock) is expanded/visible.
+    // Shared "sunken hardware well" drawing — same recessed fill + 3D cutout
+    // bevel used for BOTH the Routing well and the Sends well below, so the
+    // two pools can never visually drift apart.
+    auto drawVoidWell = [&g] (juce::Rectangle<float> well)
+    {
+        constexpr float cornerRadius = 3.0f;
 
-    // meterBounds is computed once in resized(), sliced from the EXACT SAME
-    // remaining-space rect volumeFader uses — see its declaration in the header
-    // for why this can no longer drift out of sync with the fader's real height.
-    g.setColour (LAF::background);
+        if (well.getHeight() <= 0.0f || well.getWidth() <= 0.0f) // QA: guard against a negative/zero rect on a pathologically narrow strip
+            return;
+
+        // Deep recessed fill — the exact DarkBackground brand colour, reading
+        // as sunken relative to the lighter LightBackground panel around it.
+        g.setColour (CrateColors::DarkBackground);
+        g.fillRoundedRectangle (well, cornerRadius);
+
+        // 3D cutout: shadow on the top/left INSIDE edges (depth falling away
+        // from the viewer), highlight on the bottom/right OUTSIDE edges (the
+        // rim catching light) — the same "dark-then-light" carved language
+        // the fader ridges/groove use elsewhere. Shadow line is DarkBackground
+        // darkened (a derived runtime shade, not a new stored hex) so it stays
+        // visible against the well's own DarkBackground fill.
+        g.setColour (CrateColors::DarkBackground.darker (0.5f));
+        g.drawLine (well.getX() + 1.0f, well.getY() + 1.0f, well.getRight() - 1.0f, well.getY() + 1.0f, 1.0f);
+        g.drawLine (well.getX() + 1.0f, well.getY() + 1.0f, well.getX() + 1.0f, well.getBottom() - 1.0f, 1.0f);
+
+        g.setColour (CrateColors::LightBackground);
+        g.drawLine (well.getX(), well.getBottom(), well.getRight(), well.getBottom(), 1.0f);
+        g.drawLine (well.getRight(), well.getY(), well.getRight(), well.getBottom(), 1.0f);
+    };
+
+    // Universal Rack Width (Absolute Symmetry) — BOTH wells share the exact
+    // same X/width as Inserts and Comp (see resized()), all computed from
+    // THIS component's own getWidth() — never from a child's already-inset
+    // bounds, which is what made wells' widths/X-positions disagree in past
+    // rounds. Each well snugly wraps its own component (zero extra vertical
+    // padding).
+    const float universalWellX     = (float) rackMargin;
+    const float universalWellWidth = (float) getWidth() - (float) rackMargin * 2.0f;
+
+    // Routing well — wraps ONLY the currently-visible Routing chips
+    // (routingBlock's own bounds, already sized to getPreferredHeight()). The
+    // Pan knob is EXTRACTED: it sits strictly BELOW this well, directly on
+    // the plain track background, not housed inside it.
+    if (rackExpanded && routingBlock != nullptr)
+    {
+        const auto b = routingBlock->getBounds();
+        drawVoidWell ({ universalWellX, (float) b.getY(), universalWellWidth, (float) b.getHeight() });
+    }
+
+    // Sends "Void Well" — the entire Sends area gets the identical sunken
+    // pool treatment, so the slots read as sitting IN a deep recess cut into
+    // the hardware rather than floating on the flat panel.
+    if (rackExpanded && sendsSection != nullptr)
+    {
+        const auto b = sendsSection->getBounds();
+        drawVoidWell ({ universalWellX, (float) b.getY(), universalWellWidth, (float) b.getHeight() });
+    }
+
+    // Scribble Strip tape-label plate — a 1px inner shadow along the top edge
+    // (the "tape pressed into a slot" look) — reads fine whether the plate is
+    // currently filled with the track's colour (unmuted) or the dark
+    // muted-grey (see applyTrackColourToPlate() — the plate IS the Mute
+    // toggle now, no separate M button or colour strip).
+    {
+        const auto nb = trackNameLabel.getBounds().toFloat();
+        if (! nb.isEmpty())
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.5f));
+            g.drawLine (nb.getX() + 1.0f, nb.getY() + 0.5f, nb.getRight() - 1.0f, nb.getY() + 0.5f, 1.0f);
+        }
+    }
+
+    // Embedded track icon — NO plate/border of its own; drawn straight onto
+    // the dark void background (DarkBackground) so it reads as seamlessly
+    // milled into the mixer surface, not a bolted-on placeholder square.
+    if (! trackIconBounds.isEmpty())
+    {
+        auto ib = trackIconBounds.toFloat();
+        g.setColour (CrateColors::DarkBackground);
+        g.fillRoundedRectangle (ib, 3.0f);
+        g.setColour (LAF::colorTextSecondary);
+        g.setFont (juce::FontOptions (12.0f));
+        g.drawText (juce::String::charToString ((juce::juce_wchar) 0x266A), trackIconBounds, juce::Justification::centred); // ♪
+    }
+
+    // L4 main audio meter (upward-filling).
+    g.setColour (LAF::colorTheVoid);
     g.fillRect (meterBounds);
 
     const auto normalised = juce::jlimit (0.0f, 1.0f, (meterLevelDb - meterFloorDb) / meterRangeDb);
@@ -915,9 +1186,6 @@ void MixerStrip::paint (juce::Graphics& g)
 
     if (fillHeight > 0.0f)
     {
-        // Green -> Yellow -> Red across the meter's FULL height, so a short green
-        // sliver and a tall near-red bar are both cut from the SAME ramp rather
-        // than two independently-scaled gradients.
         juce::ColourGradient gradient (juce::Colours::limegreen, meterBounds.getBottomLeft(),
                                         juce::Colours::red, meterBounds.getTopLeft(), false);
         gradient.addColour (0.75, juce::Colours::yellow);
@@ -925,58 +1193,124 @@ void MixerStrip::paint (juce::Graphics& g)
         g.fillRect (fillRect);
     }
 
-    // Peak Hold — a distinct bright 1px line at the held peak value, drawn ON TOP
-    // of the live fill so it still reads once the live level has dropped below it.
+    // Peak-hold marker line.
     const auto peakNormalised = juce::jlimit (0.0f, 1.0f, (peakHoldDb - meterFloorDb) / meterRangeDb);
     const auto peakY = meterBounds.getBottom() - meterBounds.getHeight() * peakNormalised;
     g.setColour (juce::Colours::white);
     g.fillRect (juce::Rectangle<float> (meterBounds.getX(), peakY - 0.5f, meterBounds.getWidth(), 1.0f));
 
-    // Numerical peak-hold dB readout at the top of the column — skipped entirely
-    // at/near the floor (effectively -INF) rather than printing a meaningless
-    // "-60.0" when there's no real signal.
-    if (peakHoldDb > meterFloorDb + 0.5f)
+    // L4 GR meter (downward-filling) — thin column beside the main meter.
+    g.setColour (LAF::colorTheVoid);
+    g.fillRect (grMeterBounds);
+
+    constexpr float grRangeDb = 20.0f;
+    const auto grNormalised = juce::jlimit (0.0f, 1.0f, gainReductionDb / grRangeDb);
+    const auto grFillHeight = grMeterBounds.getHeight() * grNormalised;
+
+    if (grFillHeight > 0.0f)
     {
-        g.setColour (juce::Colours::white.withAlpha (0.85f));
-        g.setFont (juce::FontOptions (10.0f));
-        g.drawText (juce::String (peakHoldDb, 1), meterBounds.withHeight (12.0f),
-                    juce::Justification::centred);
+        g.setColour (juce::Colour (0xffffb000)); // amber, hanging from the top
+        g.fillRect (grMeterBounds.withHeight (grFillHeight));
     }
+
+    g.setColour (juce::Colours::black.withAlpha (0.6f));
+    g.drawVerticalLine ((int) grMeterBounds.getX(), grMeterBounds.getY(), grMeterBounds.getBottom());
 }
 
+//==============================================================================
 void MixerStrip::resized()
 {
-    auto full = getLocalBounds();
+    // STRICT BOTTOM-UP LAYOUT. Bottom-anchored levels are carved off the BOTTOM
+    // (removeFromBottom), top-anchored levels off the TOP (removeFromTop), and
+    // the L4 fader/meter block fills whatever remains in the middle — so it
+    // always stretches to zero dead space regardless of strip height.
+    auto bounds = getLocalBounds().reduced (outerMargin);
 
-    // Both branches explicitly consume from the top — rigid Pro Tools-style
-    // allocation, not a conditional skip. rackHeight (200) matches
-    // ChannelStripRack's own fixed 50+90+60 section stack exactly, so this can
-    // never under- or over-allocate relative to what that block actually lays out.
+    // QA Hardening: clamped so a pathologically narrow strip (dragged mixer
+    // column, extreme zoom) can never produce a negative width fed into
+    // setBounds() below — every rackMargin-based container uses THIS, not a
+    // raw getWidth() - rackMargin*2 recomputed at each call site.
+    const int universalWidth = juce::jmax (0, getWidth() - rackMargin * 2);
+
+    // ----- Bottom group (Scribble Strip + R/S/I triad) -------------------------
+    // Embedded icon at the ABSOLUTE bottom (no plate/border — see paint()),
+    // track name (the Mute toggle) directly above it, R/S/I triad directly
+    // above that. No more separate M button or colour strip.
+    trackIconBounds = bounds.removeFromBottom (scribbleIconH).withSizeKeepingCentre (scribbleIconH, scribbleIconH);
+    bounds.removeFromBottom (scribbleGap);
+    trackNameLabel.setBounds (bounds.removeFromBottom (nameH));
+    bounds.removeFromBottom (levelGap);
+
+    {
+        // (universalWidth - 4) / 3, 2px gaps — the exact Lead Architect
+        // formula, so all three buttons are equally sized and symmetrically
+        // spaced within the universal rack width.
+        auto row = bounds.removeFromBottom (tripletH)
+                          .withX (rackMargin).withWidth (universalWidth);
+        constexpr int gap = 2;
+        const int each = juce::jmax (0, (row.getWidth() - gap * 2) / 3); // QA: never a negative width if the strip is ever narrower than the gaps
+        recordButton.setBounds (row.removeFromLeft (each));
+        row.removeFromLeft (gap);
+        soloButton.setBounds (row.removeFromLeft (each));
+        row.removeFromLeft (gap);
+        inputMonitorButton.setBounds (row); // remainder absorbs integer-division rounding
+    }
+    bounds.removeFromBottom (levelGap);
+
+    // ----- Top group (L14 → L9 when expanded, then L8 → L5) -------------------
     if (rackExpanded)
-        rack->setBounds (full.removeFromTop (rackHeight));
-    else
-        rack->setBounds (full.removeFromTop (0));
+    {
+        settingsButton.setBounds (bounds.removeFromTop (settingsH));           // L14
+        bounds.removeFromTop (levelGap);
 
-    auto area = full.reduced (6);
+        eqThumbnail->setBounds (bounds.removeFromTop (eqH));                    // L13
+        bounds.removeFromTop (levelGap);
 
-    trackNameLabel.setBounds (area.removeFromTop (18));
-    area.removeFromTop (4);
+        channelCompButton.setBounds (bounds.removeFromTop (compH)
+                                           .withX (rackMargin).withWidth (universalWidth)); // L12 — Universal Rack Width
+        bounds.removeFromTop (levelGap);
 
-    auto buttonRow = area.removeFromTop (22);
-    muteButton.setBounds (buttonRow.removeFromLeft (buttonRow.getWidth() / 2).reduced (2, 0));
-    soloButton.setBounds (buttonRow.reduced (2, 0));
-    area.removeFromTop (4);
+        insertsSection->setBounds (bounds.removeFromTop (InsertsRackComponent::getFixedHeight())
+                                         .withX (rackMargin).withWidth (universalWidth)); // L11 — IS the dark block, draws its own fill
+        insertsSection->resized();
+        bounds.removeFromTop (levelGap);
 
-    panKnob.setBounds (area.removeFromTop (40).reduced (10, 0));
-    area.removeFromTop (4);
+        // Full well width (matches Inserts/the well painters exactly) — the
+        // scrollbar needs to dock at the well's true right edge, so the
+        // rackButtonPadding left-inset for its rows is applied INSIDE
+        // SendsSection::resized() instead of out here.
+        sendsSection->setBounds (bounds.removeFromTop (sendsH)
+                                       .withX (rackMargin).withWidth (universalWidth)); // L10
+        sendsSection->resized();
+        bounds.removeFromTop (sendsToRoutingGap); // strict 6-8px — the two dark wells must never touch
 
-    // Fader/Meter container: EVERYTHING left (down to the dB value label at the
-    // very bottom) is stretched to fill it completely — the value label is
-    // carved off FIRST, then the meter column is sliced from the SAME remaining
-    // rect volumeFader gets, so the two always share an identical, maximal
-    // vertical span — "massive and tall", matching the fader exactly, not a
-    // mismatched sliver next to it.
-    volumeValueLabel.setBounds (area.removeFromBottom (16));
-    meterBounds = area.removeFromRight (meterColumnWidth).reduced (4, 0).toFloat();
-    volumeFader.setBounds (area);
+        // Routing well is now DYNAMIC height: just OUT 1+2 when no group is
+        // assigned (routingBlock->getPreferredHeight() == routingRowH), or
+        // OUT 1+2 + the Group chip stacked when one is (Read is gone entirely
+        // — see the Eradicate directive).
+        routingBlock->setBounds (bounds.removeFromTop (routingBlock->getPreferredHeight())
+                                       .withX (rackMargin).withWidth (universalWidth)); // L9 — Universal Rack Width
+        routingBlock->resized();
+        bounds.removeFromTop (levelGap); // Routing well -> Pan knob gap
+    }
+
+    // L6 Pan knob — EXTRACTED: sits strictly BELOW the Routing well now,
+    // directly on the plain track background, not inside any well/rack chip.
+    panKnob.setBounds (bounds.removeFromTop (panH).withSizeKeepingCentre (panH, panH));
+    bounds.removeFromTop (panValueGap);
+
+    panValueLabel.setBounds (bounds.removeFromTop (panValueH));
+    bounds.removeFromTop (levelGap);
+
+    {
+        auto row = bounds.removeFromTop (dbReadoutH);                          // L5
+        faderPositionLabel.setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (1, 0));
+        peakLevelLabel.setBounds (row.reduced (1, 0));
+    }
+    bounds.removeFromTop (levelGap);
+
+    // ----- L4: the tall unified fader + meters block (fills the remainder) ----
+    grMeterBounds = bounds.removeFromRight (grMeterColumnWidth).reduced (1, 0).toFloat();
+    meterBounds   = bounds.removeFromRight (meterColumnWidth).reduced (2, 0).toFloat();
+    volumeFader.setBounds (bounds);
 }

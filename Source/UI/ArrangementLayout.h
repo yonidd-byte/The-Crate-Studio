@@ -40,13 +40,16 @@ namespace CrateArrangement
     inline constexpr double maxPixelsPerSecond       = 500.0;
     inline double pixelsPerSecond = defaultPixelsPerSecond;
 
-    // Maps time (seconds) to an absolute x position: headerWidth is the fixed
-    // left column, everything after it is time * pixelsPerSecond — NOT stretched
-    // to fit whatever width happens to be available (that was the old, pre-zoom
-    // behaviour). Content wider than the visible viewport just scrolls.
+    // Right-Side Headers (Ableton layout): the grid/clip lane now starts at
+    // ABSOLUTE x=0 — no left margin reserved for a header column, since the
+    // header is no longer inline-left. It's a per-row floating overlay pinned
+    // to the RIGHT edge of the currently VISIBLE viewport window instead (see
+    // TrackRow::positionHeader()), so it never competes with the time->pixel
+    // mapping here. This makes the clip grid sit directly adjacent to the
+    // Left Panel (Browser/Inspector), as the Ableton-style layout requires.
     inline float timeToX (double seconds)
     {
-        return (float) headerWidth + (float) (seconds * pixelsPerSecond);
+        return (float) (seconds * pixelsPerSecond);
     }
 
     // Inverse of timeToX() — maps an x pixel back to a time (seconds), clamped to
@@ -54,7 +57,7 @@ namespace CrateArrangement
     // turn an x-coordinate into a time.
     inline double xToTime (int x)
     {
-        return juce::jmax (0.0, (double) (x - headerWidth) / pixelsPerSecond);
+        return juce::jmax (0.0, (double) x / pixelsPerSecond);
     }
 
     // Total scrollable content width (px) needed to show the full project length
@@ -63,7 +66,7 @@ namespace CrateArrangement
     // and zooming stay consistent everywhere that draws against the grid.
     inline int contentWidthPx()
     {
-        return headerWidth + (int) (totalSeconds * pixelsPerSecond);
+        return (int) (totalSeconds * pixelsPerSecond);
     }
 
     // Which beat indices intersect the ABSOLUTE (unscrolled — i.e. straight out

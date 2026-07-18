@@ -52,6 +52,34 @@ namespace
         return noteNumber;
     }
 
+    // MIDI AUDITIONING: injects a live Note-On/Off straight into the clip's
+    // owning AudioTrack via TE's injectLiveMidiMessage() — the exact same
+    // real-time-safe path a physical MIDI input device uses (AudioTrack.cpp
+    // calls it from PhysicalMidiInputDevice's own thread; here it's called
+    // from the message thread instead, which is equally valid — it's a
+    // listener-broadcast hook, not a raw audio-thread queue write). Deliberately
+    // bypasses the clip's MidiList entirely: auditioning must never touch the
+    // actual note data or the Undo stack, only make sound.
+    void auditionNoteOn (te::MidiClip* clip, int noteNumber, int velocity)
+    {
+        if (clip == nullptr)
+            return;
+
+        if (auto* track = dynamic_cast<te::AudioTrack*> (clip->getClipTrack()))
+            track->injectLiveMidiMessage (juce::MidiMessage::noteOn (1, noteNumber, (juce::uint8) juce::jlimit (1, 127, velocity)),
+                                          tracktion::engine::MPESourceID {}); // 0 == not MPE (notMPE is deprecated)
+    }
+
+    void auditionNoteOff (te::MidiClip* clip, int noteNumber)
+    {
+        if (clip == nullptr || noteNumber < 0)
+            return;
+
+        if (auto* track = dynamic_cast<te::AudioTrack*> (clip->getClipTrack()))
+            track->injectLiveMidiMessage (juce::MidiMessage::noteOff (1, noteNumber),
+                                          tracktion::engine::MPESourceID {}); // 0 == not MPE (notMPE is deprecated)
+    }
+
     // THEME FIX: the deep-indigo debug panel is gone — the piano roll now uses
     // the SAME shared charcoal palette every other zone already draws from,
     // rather than a one-off hex. Rule: whatever LAF colour occupied a given
@@ -282,6 +310,23 @@ public:
         repaint();
     }
 
+    // MIDI AUDITIONING: click a key to hear its pitch, held for as long as the
+    // mouse is down — same injectLiveMidiMessage() path PianoRollGridContent
+    // uses (see the free functions above), so both input surfaces sound
+    // through the exact same live-MIDI mechanism.
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        const int note = yToNote (e.position.y + (float) verticalOffset);
+        auditionNoteOn (activeMidiClip, note, 100);
+        auditionedNote = note;
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        auditionNoteOff (activeMidiClip, auditionedNote);
+        auditionedNote = -1;
+    }
+
 private:
     int verticalOffset = 0;
     CrateMidiInspectorComponent* inspector = nullptr;
@@ -290,6 +335,8 @@ private:
     bool isSnapToScale = false;
     int rootNote = 0;
     juce::Array<int> activeScaleIntervals;
+
+    int auditionedNote = -1; // -1 == not currently auditioning
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollKeyboard)
 };
@@ -800,6 +847,12 @@ public:
             lastNoteVelocity = hitNote->getVelocity(); // remember for pencil tool
             const auto bounds = noteBounds (*hitNote);
 
+            // MIDI AUDITIONING: grabbing an existing note (resize OR move) sounds
+            // its pitch for as long as the gesture lasts — mouseUp always sends
+            // the matching Note-Off (see mouseUp below).
+            auditionNoteOn (activeMidiClip, hitNote->getNoteNumber(), hitNote->getVelocity());
+            auditionedNoteNumber = hitNote->getNoteNumber();
+
             if (e.position.x >= bounds.getRight() - 8.0f)
             {
                 // Begin a resize GESTURE — one Undo transaction for the whole
@@ -849,6 +902,15 @@ public:
 
         // Left-click on empty space: start marquee selection (Ableton-style, no Ctrl needed).
         // mouseUp will add a note if rect is tiny (just a click), or keep selection if dragged.
+        // MIDI AUDITIONING: sound the pitch under the cursor immediately — if this
+        // turns into a click-to-add-note (mouseUp, tiny rect), the user hears the
+        // note they're about to draw; if it turns into a real marquee drag, mouseUp
+        // still cleanly sends the matching Note-Off either way.
+        {
+            const int previewNote = yToNote (e.position.y);
+            auditionNoteOn (activeMidiClip, previewNote, lastNoteVelocity);
+            auditionedNoteNumber = previewNote;
+        }
         isSelecting = true;
         dragStartX = e.position.x;
         dragStartY = e.position.y;
@@ -1040,6 +1102,16 @@ public:
             if (isSnapToScale)
                 newNote = snapNoteToScale (newNote, rootNote, activeScaleIntervals);
 
+            // MIDI AUDITIONING: retrigger only when the pitch actually changes
+            // row — re-injecting Note-On every drag tick at the SAME pitch would
+            // just re-attack/click the same note dozens of times a second.
+            if (newNote != auditionedNoteNumber)
+            {
+                auditionNoteOff (activeMidiClip, auditionedNoteNumber);
+                auditionNoteOn (activeMidiClip, newNote, lastNoteVelocity);
+                auditionedNoteNumber = newNote;
+            }
+
             // Multi-note move: apply the same delta to all selected notes.
             if (selectedNotesInitialState.size() > 1)
             {
@@ -1080,6 +1152,12 @@ public:
 
     void mouseUp (const juce::MouseEvent& e) override
     {
+        // MIDI AUDITIONING: unconditionally end whatever's sounding — covers
+        // every gesture branch below (erase/marquee/resize/move) with one call,
+        // so a stuck note can never survive past mouseUp regardless of path.
+        auditionNoteOff (activeMidiClip, auditionedNoteNumber);
+        auditionedNoteNumber = -1;
+
         if (isErasing)
         {
             isErasing = false;
@@ -1303,6 +1381,8 @@ private:
 
     te::MidiNote* draggedNote = nullptr;
     bool isResizing = false;
+
+    int auditionedNoteNumber = -1; // -1 == not currently auditioning (see auditionNoteOn/Off above)
 
     // Move-gesture state. dragStart* are the fixed origin captured on mouseDown
     // (cursor position + the note's pitch/start at that instant), so mouseDrag

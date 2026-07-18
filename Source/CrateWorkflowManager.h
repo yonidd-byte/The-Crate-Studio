@@ -62,7 +62,18 @@ public:
         the same "I explicitly asked to add this" gesture the Browser's
         double-click is, so this leaves the window closed until the user opens
         it deliberately (Device Chain's wrench button, or MixerStrip's insert). */
-    void loadPluginOntoTrack (const juce::PluginDescription& description, te::AudioTrack& targetTrack, int insertIndex);
+    // te::Track BASE type (not AudioTrack) — the implementation only ever
+    // touches targetTrack.pluginList (a member of Track itself), so this works
+    // identically for te::MasterTrack, letting the Universal Device Chain load
+    // mastering plugins onto Master through this exact same pipeline.
+    //
+    // Returns false (no-op, nothing instantiated) if description.isInstrument
+    // and targetTrack is the Master track — Master is a mastering/effects bus,
+    // never an instrument host, in every real DAW. Also returns false if
+    // instantiation itself failed. Callers that care why (vs. just silently
+    // dropping the drag/menu action) can check description.isInstrument
+    // themselves before calling, same as showInstrumentMenu() already does.
+    bool loadPluginOntoTrack (const juce::PluginDescription& description, te::Track& targetTrack, int insertIndex);
 
     /** Deletes currentSelectedTrack and clears the selection. Wrapped in a single
         Undo transaction. No-op if nothing is selected. */

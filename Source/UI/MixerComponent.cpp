@@ -1,5 +1,6 @@
 #include "MixerComponent.h"
 #include "MixerStrip.h"
+#include "MasterStrip.h"
 #include "TheCrateLookAndFeel.h"
 
 namespace
@@ -113,6 +114,13 @@ MixerComponent::MixerComponent (te::Edit& editToShow, CrateWorkflowManager& work
         rackExpanded = ! rackExpanded;
         expandRackButton.setButtonText (rackExpanded ? "Collapse Rack" : "Expand Rack");
         content->setAllStripsExpanded (rackExpanded);
+
+        // The pinned MasterStrip must join this toggle too — "Expand Rack"
+        // affecting every real track strip but silently doing nothing to
+        // Master would leave its rack stuck/broken-looking.
+        if (masterStrip != nullptr)
+            masterStrip->setRackExpanded (rackExpanded);
+
         layoutContent();
     };
 
@@ -126,6 +134,13 @@ MixerComponent::MixerComponent (te::Edit& editToShow, CrateWorkflowManager& work
     viewport.setViewedComponent (content.get(), false);
     viewport.setScrollBarsShown (true, true); // rack-expanded height can exceed the zone
     addAndMakeVisible (viewport);
+
+    // Master — always rendered, pinned to the far right, OUTSIDE the scrolling
+    // viewport (see the header's doc comment on this member for why).
+    masterStrip = std::make_unique<MasterStrip> (edit, workflow);
+    masterStrip->onSelected = [this] { if (onMasterSelected) onMasterSelected(); };
+    masterStrip->onInsertSlotSelected = [this] (te::Plugin* p) { if (onMasterInsertSelected) onMasterInsertSelected (p); };
+    addAndMakeVisible (*masterStrip);
 
     rebuildStrips();
 }
@@ -159,6 +174,11 @@ void MixerComponent::resized()
 
     auto topBar = area.removeFromTop (topBarHeight).reduced (6, 3);
     expandRackButton.setBounds (topBar.removeFromLeft (120));
+
+    // Master claimed FIRST, from the right — fixed width, full remaining
+    // height, entirely outside the viewport, so it can never scroll away
+    // alongside the real track strips.
+    masterStrip->setBounds (area.removeFromRight (stripWidth));
 
     viewport.setBounds (area);
     layoutContent();

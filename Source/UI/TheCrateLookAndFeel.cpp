@@ -5,10 +5,15 @@ TheCrateLookAndFeel::TheCrateLookAndFeel()
     setColour (juce::ResizableWindow::backgroundColourId, background);
     setColour (juce::DocumentWindow::backgroundColourId, background);
 
-    setColour (juce::TextButton::buttonColourId, panelLight);
-    setColour (juce::TextButton::buttonOnColourId, accent);
+    // "Ghosted Buttons" (Manifesto section 3): OFF blends almost into the
+    // panel (colorGhostedOff, not the brighter panelLight this used to sit
+    // on), dimmed secondary-grey text. ON is the strictly-rationed accent by
+    // default — Mute/Solo buttons override buttonOnColourId per-instance to
+    // colorMuteRed/colorSoloYellow (see MixerStrip.cpp/TrackHeaderComponent.h).
+    setColour (juce::TextButton::buttonColourId, colorGhostedOff);
+    setColour (juce::TextButton::buttonOnColourId, colorNeonCyan);
     setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-    setColour (juce::TextButton::textColourOffId, text);
+    setColour (juce::TextButton::textColourOffId, colorTextSecondary);
 
     setColour (juce::Slider::trackColourId, panelLight);
     setColour (juce::Slider::thumbColourId, text);
@@ -139,6 +144,14 @@ void TheCrateLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int
 void TheCrateLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& button, const juce::Colour& backgroundColour,
                                                  bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown)
 {
+    // backgroundColour arrives ALREADY resolved by juce::Button::paintButton()
+    // to buttonOnColourId when toggled on, buttonColourId when off — so the
+    // "OFF ghosts into the panel, ON fills with a saturated role colour"
+    // language comes entirely from whatever each button was configured with
+    // (colorGhostedOff / colorNeonCyan by default, colorMuteRed/colorSoloYellow
+    // per-instance for Mute/Solo). This override supplies the shared SHAPE:
+    // 3.0f corner radius, exactly the SSL console spec, replacing the old
+    // sharp-cornered fillRect.
     auto bounds = button.getLocalBounds().toFloat();
     auto fill = backgroundColour;
 
@@ -150,14 +163,33 @@ void TheCrateLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button&
     if (! button.isEnabled())
         fill = fill.withMultipliedAlpha (0.4f);
 
+    constexpr float cornerRadius = 3.0f;
+
     g.setColour (fill);
-    g.fillRect (bounds);
+    g.fillRoundedRectangle (bounds, cornerRadius);
 
     if (button.hasKeyboardFocus (true))
     {
         g.setColour (accent);
-        g.drawRect (bounds, 1.0f);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), cornerRadius, 1.0f);
     }
+}
+
+void TheCrateLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
+                                             bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown)
+{
+    // Identical ghosted-button language to drawButtonBackground above (ON =
+    // saturated colorNeonCyan, OFF = colorGhostedOff) — juce::ToggleButton has
+    // its own distinct colour-ID enum from TextButton's, and nothing in this
+    // app currently sets per-instance role colours on a ToggleButton (none
+    // exist yet), so this uses the plain default pair directly rather than
+    // borrowing TextButton's ColourIds across an unrelated widget type.
+    const auto fillColour = button.getToggleState() ? colorNeonCyan : colorGhostedOff;
+    drawButtonBackground (g, button, fillColour, shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
+
+    g.setColour (button.getToggleState() ? juce::Colours::black : colorTextSecondary);
+    g.setFont (juce::FontOptions (juce::jmin (15.0f, (float) button.getHeight() * 0.55f))); // same sizing rule as getTextButtonFont()
+    g.drawText (button.getButtonText(), button.getLocalBounds().reduced (4, 0), juce::Justification::centredLeft);
 }
 
 juce::Font TheCrateLookAndFeel::getTextButtonFont (juce::TextButton&, int buttonHeight)

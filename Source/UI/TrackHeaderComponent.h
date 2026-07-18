@@ -81,13 +81,14 @@ private:
     // click/refresh logic — one definition each, so the "on" colour a button is
     // constructed with can never drift from the colour refreshToggleStatesFromEngine()
     // (etc.) reasons about.
-    // Strict industry-standard muscle-memory colours — not invented, not tuned per
-    // project taste: bright red reserved EXCLUSIVELY for Record Arm, bright cyan
-    // for Solo, studio orange for Mute. Saturated deliberately so they stay
-    // legible under stage lighting, per the Lead UX Architect's spec.
-    inline static const juce::Colour armOnColour  { 0xffff1e1e }; // bright red    — Record Arm ONLY
-    inline static const juce::Colour soloOnColour { 0xff29d6f0 }; // bright cyan   — Solo
-    inline static const juce::Colour muteOnColour { 0xffff9500 }; // studio orange — Mute
+    // V2.0 UI/UX Master Manifesto, section 3 ("Ghosted Buttons"): Mute=red,
+    // Solo=yellow — matte, non-blinding, exact hex values from
+    // TheCrateLookAndFeel::colorMuteRed/colorSoloYellow (supersedes this
+    // class's earlier cyan-Solo/orange-Mute scheme). Record Arm isn't
+    // specified by the Manifesto, so it keeps its own distinct bright red.
+    inline static const juce::Colour armOnColour  { 0xffff1e1e };            // bright red — Record Arm ONLY
+    inline static const juce::Colour soloOnColour { TheCrateLookAndFeel::colorSoloYellow };
+    inline static const juce::Colour muteOnColour { TheCrateLookAndFeel::colorMuteRed };
 
     // Flat, square, colour-coded toggle block — Ableton style: no default JUCE
     // TextButton bevel/gradient, just a solid-filled square with a single glyph
@@ -121,6 +122,11 @@ private:
 
     void refreshVolumeFromEngine();
     void refreshToggleStatesFromEngine();
+
+    // Right-click rename + track-colour editor — the SAME shared helper the
+    // Mixer name-plate uses (CrateTrackEditor::showNameColourMenu), so recolour
+    // from the timeline and from the Mixer are literally one code path.
+    void showNameColourEditor();
 
     te::AudioTrack::Ptr track;
     CrateWorkflowManager& workflow;

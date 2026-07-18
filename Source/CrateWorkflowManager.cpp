@@ -112,22 +112,34 @@ void CrateWorkflowManager::loadPluginToSelectedTrack (const juce::PluginDescript
             plugin->showWindowExplicitly();
 }
 
-void CrateWorkflowManager::loadPluginOntoTrack (const juce::PluginDescription& description, te::AudioTrack& targetTrack, int insertIndex)
+bool CrateWorkflowManager::loadPluginOntoTrack (const juce::PluginDescription& description, te::Track& targetTrack, int insertIndex)
 {
     // See loadPluginToSelectedTrack()'s identical tripwire above.
     jassert (juce::MessageManager::existsAndIsCurrentThread());
 
     if (edit == nullptr)
-        return;
+        return false;
+
+    // Master is a mastering/effects bus — it can never host an
+    // Instrument/Synth. Checked BEFORE instantiation (not after) so a bad
+    // drop/menu pick never even spins up the plugin instance.
+    if (description.isInstrument && &targetTrack == edit->getMasterTrack())
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+            "Cannot Load Instrument on Master",
+            "\"" + description.name + "\" is an instrument — the Master track only accepts effects/mastering plugins.");
+        return false;
+    }
 
     edit->getUndoManager().beginNewTransaction ("Drop Plugin: " + description.name);
 
     auto plugin = instantiateExternalPlugin (description);
 
     if (plugin == nullptr)
-        return;
+        return false;
 
     targetTrack.pluginList.insertPlugin (plugin, insertIndex, nullptr);
+    return true;
 }
 
 te::Plugin::Ptr CrateWorkflowManager::instantiateExternalPlugin (const juce::PluginDescription& description)

@@ -1,5 +1,6 @@
 #include "TrackHeaderComponent.h"
 #include "TheCrateLookAndFeel.h"
+#include "TrackColourEditor.h"
 
 namespace
 {
@@ -246,16 +247,32 @@ void TrackHeaderComponent::valueTreePropertyChanged (juce::ValueTree& v, const j
     if (track == nullptr || v != track->state)
         return;
 
-    if (property != te::IDs::mute && property != te::IDs::solo && property != armedPropertyID)
-        return;
-
     juce::Component::SafePointer<TrackHeaderComponent> safeThis (this);
 
-    juce::MessageManager::callAsync ([safeThis]
+    if (property == te::IDs::mute || property == te::IDs::solo || property == armedPropertyID)
     {
-        if (safeThis != nullptr)
-            safeThis->refreshToggleStatesFromEngine();
-    });
+        juce::MessageManager::callAsync ([safeThis]
+        {
+            if (safeThis != nullptr)
+                safeThis->refreshToggleStatesFromEngine();
+        });
+        return;
+    }
+
+    // Name / colour changed from the Mixer (or Undo/Redo) — reflect it here so
+    // the two views stay in lockstep. Both mutate the SAME track ValueTree and
+    // both listen to it, so this is fully bidirectional.
+    if (property == te::IDs::name || property == te::IDs::colour)
+    {
+        juce::MessageManager::callAsync ([safeThis]
+        {
+            if (safeThis == nullptr || safeThis->track == nullptr)
+                return;
+
+            safeThis->nameLabel.setText (safeThis->track->getName(), juce::dontSendNotification);
+            safeThis->repaint(); // colour stripe is painted from track->getColour()
+        });
+    }
 }
 
 void TrackHeaderComponent::refreshVolumeFromEngine()
@@ -300,15 +317,63 @@ void TrackHeaderComponent::setSelected (bool shouldBeSelected)
     }
 }
 
-void TrackHeaderComponent::mouseDown (const juce::MouseEvent&)
+void TrackHeaderComponent::mouseDown (const juce::MouseEvent& e)
 {
     if (onSelect)
         onSelect();
+
+    if (e.mods.isPopupMenu())
+        showNameColourEditor();
+}
+
+void TrackHeaderComponent::showNameColourEditor()
+{
+    if (track == nullptr)
+        return;
+
+    juce::Component::SafePointer<TrackHeaderComponent> safeThis (this);
+
+    CrateTrackEditor::showNameColourMenu (
+        this,
+        nameLabel.getScreenBounds(),
+        track->getName(),
+        track->getColour(),
+        [safeThis] (juce::String newName)
+        {
+            if (safeThis != nullptr && safeThis->track != nullptr)
+            {
+                safeThis->track->edit.getUndoManager().beginNewTransaction ("Rename Track");
+                safeThis->track->setName (newName);
+            }
+        },
+        [safeThis]
+        {
+            if (safeThis != nullptr && safeThis->track != nullptr)
+                safeThis->track->edit.getUndoManager().beginNewTransaction ("Set Track Colour");
+        },
+        [safeThis] (juce::Colour c)
+        {
+            if (safeThis != nullptr && safeThis->track != nullptr)
+                safeThis->track->setColour (c);
+        });
 }
 
 void TrackHeaderComponent::paint (juce::Graphics& g)
 {
     g.fillAll (selected ? headerSelected : headerDefault);
+
+    // FULL track-colour fill — the header background IS the track's identity
+    // colour (set from here or the Mixer name-plate; both write
+    // track->setColour() and round-trip via the ValueTree). Painted at ~0.5
+    // alpha over the neutral base so white text and the M/S toggle buttons stay
+    // clearly legible on top. Only when a colour has actually been chosen
+    // (te::Track's default is transparent). A selected track keeps a touch more
+    // colour so it still reads as active.
+    if (track != nullptr && ! track->getColour().isTransparent())
+    {
+        g.setColour (track->getColour().withAlpha (selected ? 0.62f : 0.5f));
+        g.fillAll();
+    }
 
     // Left accent stripe when selected — quick visual anchor for the active track.
     if (selected)

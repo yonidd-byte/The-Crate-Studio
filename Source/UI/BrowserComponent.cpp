@@ -1,5 +1,6 @@
 #include "BrowserComponent.h"
 #include "TheCrateLookAndFeel.h"
+#include "CrateMidiInspectorComponent.h"
 
 namespace
 {
@@ -11,19 +12,75 @@ namespace
 
     const juce::String pluginDragPrefix = "plugin_drag|";
 
-    // Small stylised "plug" glyph (body + two prongs) — stands in for a real
-    // per-category icon set until The Crate Brain's ontology DB (section 1) lands;
-    // custom-drawn either way, never an OS default icon.
-    void drawPlugIcon (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour colour)
+    // Professional iconography (Task 1): real SVG path data, parsed once via
+    // juce::Drawable::parseSVGPath and cached as a static juce::Path — NOT
+    // hand-rolled fillRect/fillRoundedRectangle calls. Every path is a 24x24
+    // viewBox filled silhouette, scaled to fit each button's own bounds at
+    // paint time via Path::getTransformToScaleToFit(), so they stay crisp at
+    // any tab size.
+    const juce::Path& getPlugIconPath()
     {
-        g.setColour (colour);
-        auto body = bounds.withTop (bounds.getY() + bounds.getHeight() * 0.35f);
-        g.fillRoundedRectangle (body, 2.0f);
-
-        const auto prongWidth = bounds.getWidth() * 0.18f;
-        g.fillRect (juce::Rectangle<float> (bounds.getX() + bounds.getWidth() * 0.2f, bounds.getY(), prongWidth, bounds.getHeight() * 0.4f));
-        g.fillRect (juce::Rectangle<float> (bounds.getRight() - bounds.getWidth() * 0.2f - prongWidth, bounds.getY(), prongWidth, bounds.getHeight() * 0.4f));
+        static const juce::Path path = juce::Drawable::parseSVGPath (
+            "M10 2h1v6h-1zM13 2h1v6h-1z"
+            "M7 7h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0V8a1 1 0 0 1 1-1z"
+            "M11 20h2v3h-2z");
+        return path;
     }
+
+    const juce::Path& getWaveformIconPath()
+    {
+        static const juce::Path path = juce::Drawable::parseSVGPath (
+            "M3 10h2v4H3zM7 6h2v12H7zM11 3h2v18h-2zM15 6h2v12h-2zM19 10h2v4h-2z");
+        return path;
+    }
+
+    const juce::Path& getStarIconPath()
+    {
+        static const juce::Path path = juce::Drawable::parseSVGPath (
+            "M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.9-6.2 3.9 1.6-7L2 9.2l7.1-.6z");
+        return path;
+    }
+
+    const juce::Path& getSlidersIconPath()
+    {
+        // Two vertical tracks with a "fader cap" bar at a different height on
+        // each — represents the Inspector's dual channel-strip paradigm.
+        static const juce::Path path = juce::Drawable::parseSVGPath (
+            "M8 3h1v18H8zM16 3h1v18h-1zM5 9h7v2H5zM12 15h7v2h-7z");
+        return path;
+    }
+}
+
+//==============================================================================
+void BrowserComponent::IconTabButton::paintButton (juce::Graphics& g, bool isMouseOver, bool /*isButtonDown*/)
+{
+    // Same on/off colour language the old text tabs used (accent when this is
+    // the active tab, dimmed otherwise) — just applied to a Path glyph instead
+    // of text. A light hover tint on an inactive tab gives the same "this is
+    // clickable" feedback the old TextButton's default hover state gave for free.
+    const auto colour = getToggleState() ? LAF::accent
+                       : isMouseOver      ? LAF::text
+                                          : LAF::textDim;
+
+    const auto iconBounds = getLocalBounds().toFloat().reduced (getWidth() * 0.28f, getHeight() * 0.3f);
+
+    // Each icon's Path is authored in a 24x24 SVG viewBox — getTransformToScaleToFit
+    // maps that fixed coordinate space onto this button's actual icon bounds,
+    // preserving aspect ratio, so the SAME path renders crisply at any tab size.
+    const juce::Path* svgPath = nullptr;
+    switch (icon)
+    {
+        case Icon::Plug:         svgPath = &getPlugIconPath(); break;
+        case Icon::Waveform:     svgPath = &getWaveformIconPath(); break;
+        case Icon::Star:         svgPath = &getStarIconPath(); break;
+        case Icon::MixerSliders: svgPath = &getSlidersIconPath(); break;
+    }
+
+    juce::Path scaled (*svgPath);
+    scaled.applyTransform (svgPath->getTransformToScaleToFit (iconBounds, true));
+
+    g.setColour (colour);
+    g.fillPath (scaled);
 }
 
 //==============================================================================
@@ -76,7 +133,11 @@ void BrowserComponent::PluginRow::paint (juce::Graphics& g)
 
     const auto height = (float) getHeight();
     const auto iconBounds = juce::Rectangle<float> (8.0f, height * 0.2f, height * 0.6f, height * 0.6f);
-    drawPlugIcon (g, iconBounds, hovering ? LAF::accent : LAF::textDim);
+
+    juce::Path scaledIcon (getPlugIconPath());
+    scaledIcon.applyTransform (getPlugIconPath().getTransformToScaleToFit (iconBounds, true));
+    g.setColour (hovering ? LAF::accent : LAF::textDim);
+    g.fillPath (scaledIcon);
 
     g.setColour (LAF::text);
     g.setFont (juce::FontOptions (12.5f));
@@ -173,25 +234,24 @@ BrowserComponent::BrowserComponent (CrateWorkflowManager& workflowToUse)
     addAndMakeVisible (searchBar);
     searchBar.editor.onTextChange = [this] { refreshFilteredPlugins(); };
 
-    auto styleTab = [] (juce::TextButton& b)
-    {
-        b.setClickingTogglesState (false); // driven manually via setActiveTab(), not per-button toggle state
-        b.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-        b.setColour (juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
-        b.setColour (juce::TextButton::textColourOnId, LAF::accent);
-        b.setColour (juce::TextButton::textColourOffId, LAF::textDim);
-    };
-
+    // Icon-based tabs (Task 2) — IconTabButton's own paintButton() draws the
+    // plug/waveform/star/mixer-sliders glyph directly (accent when toggled on,
+    // dimmed otherwise), so there's no LookAndFeel colour styling to apply here
+    // the way the old text tabs needed.
     addAndMakeVisible (pluginsTab);
     addAndMakeVisible (samplesTab);
     addAndMakeVisible (favoritesTab);
-    styleTab (pluginsTab);
-    styleTab (samplesTab);
-    styleTab (favoritesTab);
+    addAndMakeVisible (inspectorTab);
 
-    pluginsTab.onClick   = [this] { setActiveTab (0); };
-    samplesTab.onClick   = [this] { setActiveTab (1); };
-    favoritesTab.onClick = [this] { setActiveTab (2); };
+    pluginsTab.setTooltip ("Plugins");
+    samplesTab.setTooltip ("Samples");
+    favoritesTab.setTooltip ("Favorites");
+    inspectorTab.setTooltip ("Inspector");
+
+    pluginsTab.onClick    = [this] { setActiveTab (0); };
+    samplesTab.onClick    = [this] { setActiveTab (1); };
+    favoritesTab.onClick  = [this] { setActiveTab (2); };
+    inspectorTab.onClick  = [this] { setActiveTab (3); };
 
     pluginListContent = std::make_unique<PluginListContent>();
     pluginViewport.setViewedComponent (pluginListContent.get(), false);
@@ -202,6 +262,12 @@ BrowserComponent::BrowserComponent (CrateWorkflowManager& workflowToUse)
     emptyStateLabel.setJustificationType (juce::Justification::centredTop);
     emptyStateLabel.setColour (juce::Label::textColourId, LAF::textDim);
     emptyStateLabel.setFont (juce::FontOptions (12.5f));
+
+    // INSPECTOR tab: CrateTrackInspectorComponent is self-contained (no Edit
+    // lifecycle wiring), so this class owns it directly — starts hidden,
+    // updateContentVisibility() reveals it once tab 3 is actually selected.
+    trackInspector = std::make_unique<CrateTrackInspectorComponent> (workflow);
+    addChildComponent (*trackInspector);
 
     // Picks up plugins the engine finds after this component is already showing —
     // the scanner runs on a background thread per MASTER_ARCHITECTURE.md ("The
@@ -227,21 +293,99 @@ void BrowserComponent::setActiveTab (int index)
 {
     activeTab = index;
 
-    pluginsTab.setToggleState (index == 0, juce::dontSendNotification);
-    samplesTab.setToggleState (index == 1, juce::dontSendNotification);
+    pluginsTab.setToggleState   (index == 0, juce::dontSendNotification);
+    samplesTab.setToggleState   (index == 1, juce::dontSendNotification);
     favoritesTab.setToggleState (index == 2, juce::dontSendNotification);
+    inspectorTab.setToggleState (index == 3, juce::dontSendNotification);
 
-    const bool showingPlugins = (index == 0);
-    pluginViewport.setVisible (showingPlugins);
-    emptyStateLabel.setVisible (! showingPlugins);
-
-    if (! showingPlugins)
+    if (index == 1 || index == 2)
         emptyStateLabel.setText (index == 1
                                       ? "No samples indexed yet.\nSample library scanning is coming in a later phase."
                                       : "No favorites yet.\nRight-click a plugin or sample to favorite it.",
                                   juce::dontSendNotification);
 
+    updateContentVisibility();
     repaint();
+}
+
+void BrowserComponent::setMidiInspector (CrateMidiInspectorComponent* insp)
+{
+    if (midiInspectorPtr == insp)
+        return;
+
+    // Hide/detach the OLD pointer's visibility state before swapping — it's
+    // owned by MainComponent, not this class, so this never deletes it, just
+    // stops treating it as this tab's content.
+    if (midiInspectorPtr != nullptr)
+        midiInspectorPtr->setVisible (false);
+
+    midiInspectorPtr = insp;
+
+    if (midiInspectorPtr != nullptr)
+        addChildComponent (*midiInspectorPtr); // no-op if already a child (e.g. after a rebuild with the same pointer)
+
+    updateContentVisibility();
+    resized();
+}
+
+void BrowserComponent::setPianoRollActive (bool isActive)
+{
+    if (pianoRollActive == isActive)
+        return;
+
+    pianoRollActive = isActive;
+    updateContentVisibility();
+
+    // Left Panel Isolation: entering/leaving Piano Roll mode changes whether
+    // midiInspector gets the full component bounds (isolated) or the normal
+    // contentArea beneath the tab header/search bar — needs a real relayout,
+    // not just a visibility flip.
+    resized();
+}
+
+void BrowserComponent::setSelectedTrack (te::Track* t)
+{
+    if (trackInspector != nullptr)
+        trackInspector->setTrack (t);
+}
+
+void BrowserComponent::updateContentVisibility()
+{
+    // Left Panel Isolation (Piano Roll Mode): while the Piano Roll overlay is
+    // open, this panel stops being a tabbed browser altogether — the tab
+    // header AND search bar hide completely, and midiInspector becomes the
+    // ONLY visible content, at the full panel bounds (see resized()). There's
+    // nothing else in this panel worth browsing to while the Piano Roll owns
+    // the screen, so isolation is total, not just "whichever tab happens to
+    // be selected."
+    searchBar.setVisible (! pianoRollActive);
+    pluginsTab.setVisible (! pianoRollActive);
+    samplesTab.setVisible (! pianoRollActive);
+    favoritesTab.setVisible (! pianoRollActive);
+    inspectorTab.setVisible (! pianoRollActive);
+
+    if (pianoRollActive)
+    {
+        pluginViewport.setVisible (false);
+        emptyStateLabel.setVisible (false);
+        trackInspector->setVisible (false);
+
+        if (midiInspectorPtr != nullptr)
+            midiInspectorPtr->setVisible (true);
+
+        return;
+    }
+
+    const bool showingPlugins    = (activeTab == 0);
+    const bool showingEmptyState = (activeTab == 1 || activeTab == 2);
+    const bool showingInspector  = (activeTab == 3);
+
+    pluginViewport.setVisible (showingPlugins);
+    emptyStateLabel.setVisible (showingEmptyState);
+    trackInspector->setVisible (showingInspector);
+
+    if (midiInspectorPtr != nullptr)
+        midiInspectorPtr->setVisible (false); // only ever shown during Piano Roll isolation, above
 }
 
 void BrowserComponent::refreshFilteredPlugins()
@@ -267,31 +411,58 @@ void BrowserComponent::paint (juce::Graphics& g)
     // floating panel with its own distinct chrome.
     g.fillAll (LAF::background);
 
+    // No tab header at all during Piano Roll isolation — nothing to underline.
+    if (pianoRollActive)
+        return;
+
     // Active-tab underline indicator.
-    auto* activeButton = activeTab == 0 ? &pluginsTab : activeTab == 1 ? &samplesTab : &favoritesTab;
+    auto* activeButton = activeTab == 0 ? &pluginsTab
+                        : activeTab == 1 ? &samplesTab
+                        : activeTab == 2 ? &favoritesTab
+                        : &inspectorTab;
     g.setColour (LAF::accent);
     g.fillRect (activeButton->getBounds().withTop (activeButton->getBottom() - 2).withHeight (2));
 }
 
 void BrowserComponent::resized()
 {
+    // Left Panel Isolation (Piano Roll Mode): midiInspector claims the ENTIRE
+    // component bounds — no search bar, no tab row, no margins — since those
+    // are all hidden (see updateContentVisibility()). Skips the normal
+    // tab-header layout below entirely.
+    if (pianoRollActive)
+    {
+        if (midiInspectorPtr != nullptr)
+            midiInspectorPtr->setBounds (getLocalBounds());
+
+        return;
+    }
+
     auto area = getLocalBounds().reduced (10, 10);
 
     searchBar.setBounds (area.removeFromTop (searchBarHeight));
     area.removeFromTop (10);
 
     auto tabRow = area.removeFromTop (tabRowHeight);
-    const int tabWidth = tabRow.getWidth() / 3;
+    const int tabWidth = tabRow.getWidth() / 4;
     pluginsTab.setBounds (tabRow.removeFromLeft (tabWidth));
     samplesTab.setBounds (tabRow.removeFromLeft (tabWidth));
-    favoritesTab.setBounds (tabRow);
+    favoritesTab.setBounds (tabRow.removeFromLeft (tabWidth));
+    inspectorTab.setBounds (tabRow);
 
     area.removeFromTop (6);
 
-    pluginViewport.setBounds (area);
-    pluginListContent->setMinHeight (area.getHeight());
-    pluginListContent->setSize (area.getWidth(), pluginListContent->getHeight()); // apply the new WIDTH first...
-    pluginListContent->relayout();                                               // ...then recompute the correct height from it
+    // Shared by every possible content view (plugin list, empty state, and the
+    // track Inspector) — computed ONCE here so none of them can drift out of
+    // sync with each other, same discipline MixerStrip's meterBounds uses.
+    contentArea = area;
 
-    emptyStateLabel.setBounds (area.reduced (4));
+    pluginViewport.setBounds (contentArea);
+    pluginListContent->setMinHeight (contentArea.getHeight());
+    pluginListContent->setSize (contentArea.getWidth(), pluginListContent->getHeight()); // apply the new WIDTH first...
+    pluginListContent->relayout();                                                       // ...then recompute the correct height from it
+
+    emptyStateLabel.setBounds (contentArea.reduced (4));
+
+    trackInspector->setBounds (contentArea);
 }

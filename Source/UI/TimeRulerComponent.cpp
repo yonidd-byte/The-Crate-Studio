@@ -22,11 +22,10 @@ void TimeRulerComponent::mouseDrag (const juce::MouseEvent& e)   { scrubToLocalX
 
 void TimeRulerComponent::scrubToLocalX (int localX)
 {
-    // Ignore clicks over the fixed "Bars" corner label — only the actual
-    // timeline portion of the ruler scrubs.
-    if (localX < headerWidth)
-        return;
-
+    // Right-Side Headers: the grid (and this ruler) now starts at x=0 — no
+    // reserved left margin to guard against, the header lives in a floating
+    // overlay on the RIGHT of each track row instead (see TrackRow::
+    // positionHeader()), which never overlaps this ruler strip at all.
     const auto absoluteX = localX + horizontalOffset;
     edit.getTransport().setPosition (tracktion::TimePosition::fromSeconds (xToTime (absoluteX)));
 }
@@ -37,13 +36,6 @@ void TimeRulerComponent::paint (juce::Graphics& g)
 
     const auto w = getWidth();
     const auto h = (float) getHeight();
-
-    // Header-column corner label — NOT offset by scroll (it's a fixed label over
-    // the also-fixed header column, not part of the scrolling timeline).
-    g.setColour (LAF::textDim);
-    g.setFont (juce::FontOptions (11.0f));
-    g.drawText ("Bars", juce::Rectangle<int> (0, 0, headerWidth, getHeight()).reduced (8, 0),
-                juce::Justification::centredLeft);
 
     // BUG FIX: this used to loop a fixed 0..barsToShow*beatsPerBar range
     // regardless of scroll/zoom, which both (a) went visibly blank once you

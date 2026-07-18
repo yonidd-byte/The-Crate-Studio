@@ -11,6 +11,7 @@
 #include "UI/UniversalDeviceChainComponent.h"
 #include "UI/CratePianoRollComponent.h"
 #include "UI/CrateMidiInspectorComponent.h"
+#include "UI/BottomPanelContainer.h"
 
 namespace te = tracktion::engine;
 
@@ -25,7 +26,12 @@ namespace te = tracktion::engine;
       Center -> real ArrangementComponent AND real MixerComponent, both bound to
                 workflow->getEdit(), sharing the same Grid cell. Only one is
                 setVisible() at a time — Law I: this is a crossfade, never a reload.
-      Bottom -> real UniversalDeviceChainComponent, bound to workflow->getEdit().
+      Bottom -> BottomPanelContainer, a context-aware swap host: the real
+                UniversalDeviceChainComponent while Arrangement is active, a
+                MasterAnalyzerComponent while Mixer is active, and a MIDI FX
+                placeholder while the Piano Roll overlay is active (Hybrid
+                Device & Mixer Paradigm) — see BottomPanelContainer's own doc
+                comment for the ownership split between this class and it.
 
     Layout is entirely juce::Grid-driven, rebuilt every resized() call from current
     zone visibility — a hidden zone's track collapses to Grid::Px(0) and the center
@@ -114,6 +120,15 @@ private:
     void showArrangementView();
     void showMixerView();
 
+    // Hybrid Device & Mixer Paradigm — recomputes bottomPanelContainer's
+    // ActiveView from the current showingMixerView/showingMidiEditor state,
+    // updates the toggle button's text ("DEVICE CHAIN" / "ANALYZE" / "MIDI
+    // FX"), and re-points it at whichever real deviceChain instance is alive.
+    // Called from every place that changes view state (Load, Arrange<->Mixer,
+    // MIDI editor enter/exit) so the bottom panel can never show stale content
+    // for the view you're actually looking at.
+    void updateBottomPanelForActiveView();
+
     // Phase 4 (The MIDI Suite) — the Overlay Crossfade (Law I: Strict
     // Single-Window Paradigm). enterMidiEditor() hides Arrangement + Browser and
     // reveals the Piano Roll (center) + Inspector (left column), pointing both at
@@ -141,6 +156,13 @@ private:
     std::unique_ptr<MixerComponent> mixer;
     std::unique_ptr<UniversalDeviceChainComponent> deviceChain;
 
+    // Hybrid Device & Mixer Paradigm — NOT Edit-bound itself (see its own doc
+    // comment), so unlike arrangement/mixer/deviceChain this is constructed
+    // ONCE in the constructor and survives every project Load untouched, the
+    // same way browserDock does; rebuildUIForEdit() just re-points it at
+    // whichever fresh deviceChain instance that Load produced.
+    std::unique_ptr<BottomPanelContainer> bottomPanelContainer;
+
     // Zone 4 (MIDI Suite) overlay panels. Hold a raw te::MidiClip* into the
     // current Edit, so — like the four above — they're reconstructed by
     // rebuildUIForEdit() on a project Load (and reset first in onBeforeEditSwap),
@@ -158,7 +180,11 @@ private:
     // source of truth for view/zone state — these do, and rebuildUIForEdit()
     // re-applies them every time.
     bool showingMixerView = false;
-    bool deviceChainVisible = true;
+    bool bottomPanelVisible = true; // renamed from deviceChainVisible — now gates the WHOLE BottomPanelContainer, not just the Device Chain specifically
+
+    // bottomPanelContainer's own bounds, cached so paintOverChildren()'s
+    // top-edge divider line can read the CURRENT layout without recomputing it.
+    juce::Rectangle<int> bottomPanelBounds;
 
     // Whether the Zone-4 MIDI editor overlay is currently up (Piano Roll +
     // Inspector shown, Arrangement + Browser hidden). Reset to false by

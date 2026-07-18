@@ -25,6 +25,20 @@ juce_add_gui_app(TheCrateStudio
 
 juce_generate_juce_header(TheCrateStudio)
 
+# ---------------------------------------------------------------------------
+# Binary assets (Assets/) — photorealistic hardware PNGs etc., compiled into a
+# BinaryData.h/.cpp pair via JUCE's own binary-builder, NOT loaded from disk at
+# runtime (so the .exe stays single-file/portable). Add new asset files to the
+# SOURCES list below; each one becomes BinaryData::<name>_<ext> +
+# BinaryData::<name>_<ext>Size automatically (dots in the filename become
+# underscores, e.g. fader_cap.png -> BinaryData::fader_cap_png).
+# ---------------------------------------------------------------------------
+juce_add_binary_data(TheCrateStudioAssets
+    SOURCES
+        Assets/fader_cap.png
+        Assets/pan_knob.png
+)
+
 target_sources(TheCrateStudio PRIVATE
     Source/Main.cpp
     Source/MainComponent.cpp
@@ -33,11 +47,15 @@ target_sources(TheCrateStudio PRIVATE
     Source/UI/TimelineComponent.cpp
     Source/UI/MixerComponent.cpp
     Source/UI/MixerStrip.cpp
+    Source/UI/MasterStrip.cpp
+    Source/UI/InsertsRackComponent.cpp
     Source/UI/UniversalDeviceChainComponent.cpp
     Source/UI/SettingsComponent.cpp
     Source/UI/PluginBrowserComponent.cpp
     Source/UI/BrowserComponent.cpp
     Source/UI/CrateMixerLookAndFeel.cpp
+    Source/UI/HardwareSlotLookAndFeel.cpp
+    Source/UI/GhostButtonLookAndFeel.cpp
     Source/UI/PluginSlotComponent.cpp
     Source/UI/PluginWindow.cpp
     Source/UI/TheCrateLookAndFeel.cpp
@@ -49,6 +67,7 @@ target_sources(TheCrateStudio PRIVATE
     Source/UI/CrateMidiInspectorComponent.cpp
     Source/UI/PianoRollExpressionLane.cpp
     Source/UI/PianoRollArticulationLane.cpp
+    Source/UI/CrateTrackInspectorComponent.cpp
 )
 
 target_compile_definitions(TheCrateStudio PRIVATE
@@ -64,6 +83,7 @@ target_compile_definitions(TheCrateStudio PRIVATE
 )
 
 target_link_libraries(TheCrateStudio PRIVATE
+    TheCrateStudioAssets
     tracktion::tracktion_engine
     juce::juce_audio_utils
     juce::juce_gui_extra

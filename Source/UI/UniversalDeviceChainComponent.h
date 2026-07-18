@@ -49,19 +49,24 @@ public:
     ~UniversalDeviceChainComponent() override;
 
     /** Track selection changed elsewhere (Arrangement header click, a MixerStrip
-        insert click on a different track, etc.) — rebuilds the chain for that
-        track's plugins, with nothing focused/expanded yet. Pass nullptr for "no
-        track selected". */
-    void showTrack (te::AudioTrack* trackToShow);
+        insert click on a different track, the MasterStrip, etc.) — rebuilds the
+        chain for that track's plugins, with nothing focused/expanded yet. Pass
+        nullptr for "no track selected". Takes the te::Track BASE type (not
+        AudioTrack) specifically so te::MasterTrack — which wraps the master
+        plugin list but does NOT derive from AudioTrack — can be shown here too,
+        letting the user load mastering plugins the same way as any track's. Every
+        member this class actually reads off the track (pluginList, state) lives
+        on Track itself, so this widening touches nothing AudioTrack-specific. */
+    void showTrack (te::Track* trackToShow);
 
     /** A specific plugin should come into focus (from MixerStrip::onPluginSlotSelected).
         Switches track first if pluginOwner differs from the currently shown track,
         then expands that plugin's block and folds every other one. */
-    void focusPlugin (te::AudioTrack* pluginOwner, te::Plugin* pluginToFocus);
+    void focusPlugin (te::Track* pluginOwner, te::Plugin* pluginToFocus);
 
     /** The track currently displayed here (nullptr if none) — callers check this
         before deleting a track to know whether clearTrack() is actually needed. */
-    te::AudioTrack* getCurrentTrack() const noexcept   { return currentTrack.get(); }
+    te::Track* getCurrentTrack() const noexcept   { return currentTrack.get(); }
 
     /** Empties the chain and drops every DeviceBlock/ParamRow reference into the
         current track's plugins. MUST be called BEFORE the engine destroys a track
@@ -112,24 +117,46 @@ private:
     void layoutContent();
     void notifyIfPreferredHeightChanged();
 
-    // Centralizes currentTrack reassignment so its te::ValueTree::Listener
-    // registration (on track->state, which IS track->pluginList.state — see
-    // MixerStrip's equivalent for the same fact) always tracks whichever track is
-    // actually being shown. Every currentTrack = ... assignment goes through this.
-    void setCurrentTrack (te::AudioTrack* newTrack);
+    // "+ Add Device": Ableton Live model, no OS file browser. Builds a
+    // PopupMenu directly from the engine's already-scanned knownPluginList
+    // (same list the Browser/PluginBrowserComponent already read), filtered to
+    // isInstrument-only entries, then routes the chosen description through
+    // CrateWorkflowManager::loadPluginOntoTrack() — the exact same
+    // instantiate+insert path drag-and-drop and the Browser use. Task 4: the
+    // button itself now lives INSIDE ChainRowContent (a trailing block at the
+    // end of the chain, full row height) — this method is just the menu logic,
+    // wired to content->onAddDeviceClicked in the constructor.
+    void showInstrumentMenu();
 
-    // te::PluginList::state IS track->state (PluginList::initialise() does
-    // state = v, not a child tree), so listening to the track catches plugin
-    // add/remove too — including via Undo/Redo, which never goes through
-    // refreshCurrentTrack()'s normal call sites. Filtered to IDs::PLUGIN children
-    // so a clip add/remove (also a direct child of track->state) doesn't trigger
-    // a pointless rebuild.
+    // Centralizes currentTrack reassignment so its te::ValueTree::Listener
+    // registration always tracks whichever track is actually being shown.
+    // Every currentTrack = ... assignment goes through this.
+    void setCurrentTrack (te::Track* newTrack);
+
+    // For a real te::AudioTrack, te::PluginList::state IS track->state
+    // (PluginList::initialise() does state = v, not a child tree) — so
+    // listening to the track catches plugin add/remove too, including via
+    // Undo/Redo. te::MasterTrack is DIFFERENT: MasterTrack::initialise() does
+    // pluginList.initialise (edit.getMasterPluginList().state) — a SEPARATE
+    // ValueTree from the MasterTrack's own track->state — verified against
+    // tracktion_MasterTrack.cpp. Listening to track->state for Master
+    // therefore listens to the wrong tree entirely and never fires on a
+    // plugin add/remove (the chain only ever caught up via some unrelated
+    // rebuild elsewhere, e.g. a resize). This helper returns whichever
+    // ValueTree actually carries that track's PLUGIN children, so
+    // setCurrentTrack()/the callbacks below always listen to (and compare
+    // against) the RIGHT tree for both track types.
+    static juce::ValueTree pluginListStateFor (te::Edit& e, te::Track* track);
+
+    // Filtered to IDs::PLUGIN children so a clip add/remove (also a direct
+    // child of a real track's state) doesn't trigger a pointless rebuild.
     void valueTreeChildAdded (juce::ValueTree& parentTree, juce::ValueTree& childTree) override;
     void valueTreeChildRemoved (juce::ValueTree& parentTree, juce::ValueTree& childTree, int) override;
 
     te::Edit& edit;
     CrateWorkflowManager& workflow;
-    te::AudioTrack::Ptr currentTrack;
+    te::Track::Ptr currentTrack;
+    juce::ValueTree listenedPluginListState; // whichever tree setCurrentTrack() actually attached the listener to
     te::Plugin* focusedPlugin = nullptr; // raw: lifetime owned by currentTrack->pluginList, cleared in showTrack()
 
     juce::Viewport viewport;

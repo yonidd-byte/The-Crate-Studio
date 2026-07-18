@@ -9,24 +9,38 @@
 namespace te = tracktion::engine;
 
 /**
-    Pro-Tools/Ableton-style arrangement view.
+    Ableton-style arrangement view — Right-Side Header Column geometry.
 
-      +--------------------------------------------------+
-      | [+ Audio] [+ MIDI]        (toolbar)              |
-      +----------------+---------------------------------+
-      | Bars           | 1     2     3   ...  (ruler)    |
-      +----------------+---------------------------------+
-      | header (M/S/A) | clip lane (grid + clips)        |  <- 80px, or 180 if 'A' on
-      |                +---------------------------------+
-      |                | automation lane (when expanded) |
-      +----------------+---------------------------------+
-      | header ...     | lane ...                        |
-      +----------------+---------------------------------+
-                        (vertically scrollable track list)
+      +--------------------------------------------------------------+
+      | [+ Audio] [+ MIDI]                          (toolbar)        |
+      +---------------------------------------------------+----------+
+      | 1     2     3   ...                     (ruler)   |          |
+      +---------------------------------------------------+----------+
+      | clip lane (grid + clips)                           | header  |  <- 80px, or 180 if 'A' on
+      +----------------------------------------------------+ (M/S/A) |
+      | automation lane (when expanded)                     |         |
+      +---------------------------------------------------+----------+
+      | lane ...                                            | ...     |
+      +---------------------------------------------------+----------+
+      | (grid extends all the way to the absolute bottom)  | MASTER  |  <- pinned to the
+      +---------------------------------------------------+----------+     bottom of the
+       (vertically scrollable grid, LEFT — touches deviceChain)  RIGHT       header column only
+
+    Corrected Column Geometry: the grid (viewport + TrackListContent) and the
+    header column (TrackHeaderColumn) are genuinely SEPARATE Components split
+    left/right FIRST — not a header floating inside the grid's own scrolling
+    row. The header column scrolls VERTICALLY in lockstep with the grid
+    (mirrors PianoRollKeyboard's proven pattern) but never horizontally — there
+    is nothing to scroll horizontally in a fixed column. Master is a SINGLE
+    piece now (MasterHeaderRow, right column only) — the left-side
+    MasterLaneRow was removed entirely (Lead Architect correction: it was a
+    dead ghost container blocking the grid) — the grid itself extends all the
+    way to the absolute bottom of its own column with no Master strip at all.
 
     Track selection is tracked here; the selected track's header highlights and is the
-    target for plugin instantiation. The 'A' toggle on a header expands that track to
-    add a dedicated automation lane below its clip lane (pushing lower tracks down).
+    target for plugin instantiation. The 'A' toggle on a header (in the header column)
+    expands that track's automation lane (in the grid column) via a bridge callback —
+    see TrackListContent::setTrackAutomationVisible().
 */
 class ArrangementComponent : public juce::Component,
                               private juce::Timer
@@ -42,6 +56,14 @@ public:
         also selects that row). Bridge point for an external owner (e.g.
         CrateWorkflowManager via MainComponent) that wants to track selection itself. */
     std::function<void (te::AudioTrack*)> onTrackSelected;
+
+    /** Task 5 (Ableton-Style Arrangement Master Track): fires when the pinned
+        Master row (header + lane, anchored to the absolute bottom of this view,
+        outside the scrolling track viewport) is clicked. Separate from
+        onTrackSelected above since te::MasterTrack does not derive from
+        te::AudioTrack — MainComponent pushes edit->getMasterTrack() into
+        selection/Device Chain in response, same as clicking a real track. */
+    std::function<void()> onMasterTrackSelected;
 
     /** Fires when a header's delete button is clicked, AFTER onTrackSelected has
         already fired for the same track (so an external selection model is
@@ -103,6 +125,7 @@ public:
     void clearDragHover();
 
     void paint (juce::Graphics&) override;
+    void paintOverChildren (juce::Graphics&) override;
     void resized() override;
 
     /** Ctrl/Cmd + scroll wheel = zoom (MASTER_ARCHITECTURE.md Zone 3). Plain
@@ -123,8 +146,19 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
-    class TrackListContent; // stacked track rows + playhead overlay + selection
-    class TrackRow;         // header + clip lane + optional automation lane
+    class TrackListContent;  // stacked LANE rows (grid + clips + automation) + playhead — NO header
+    class TrackRow;          // one lane: clip lane + optional automation lane, no header at all
+
+    // Corrected Column Geometry: genuinely separate fixed-width column, docked
+    // right, vertically synced to the grid viewport but never horizontally
+    // scrolled — see its own doc comment for why this replaced the earlier
+    // "header floats inside the grid's scrolling row" approach.
+    class TrackHeaderColumn;
+
+    // Master is a SINGLE piece — pinned to the bottom of the RIGHT header
+    // column only. The left-side MasterLaneRow was removed entirely (Lead
+    // Architect correction: it was a dead ghost container blocking the grid).
+    class MasterHeaderRow;
 
     void addTrack (bool asMidiTrack);
     void layoutContent();
@@ -176,6 +210,14 @@ private:
     ScrollAwareViewport viewport;
     std::unique_ptr<TrackListContent> content;
     bool zoomRelayoutPending = false;
+
+    // Corrected Column Geometry — genuinely separate right column, not part
+    // of the grid's own scrolling content. See TrackHeaderColumn's doc comment.
+    std::unique_ptr<TrackHeaderColumn> headerColumn;
+
+    // Master — a single piece, pinned to the bottom of headerColumn's own
+    // column (see resized()). No left-side lane piece any more.
+    std::unique_ptr<MasterHeaderRow> masterHeader;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ArrangementComponent)
 };
