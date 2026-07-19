@@ -1,5 +1,6 @@
 #include "AutomationLaneComponent.h"
 #include "TheCrateLookAndFeel.h"
+#include "CrateColors.h"
 
 #include <cmath>
 #include <algorithm>
@@ -948,19 +949,22 @@ void AutomationLaneComponent::timerCallback()
 
 void AutomationLaneComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (LAF::background);
+    // In-Track Automation Overlay (V2.0 UI/UX Manifesto section 4): this
+    // component now sits DIRECTLY ON TOP of the track's own clip lane (see
+    // TrackRow::setAutomationVisible()) rather than occupying a separate
+    // lane beneath it — so, unlike the old expandable-lane version, it must
+    // NOT paint an opaque background or its own beat grid: both would hide
+    // the (deliberately dimmed) clips underneath, which is the whole point
+    // of the overlay. TrackRow's own paintLaneGrid() already draws the real
+    // bar/beat grid at the correct project tempo; this component no longer
+    // duplicates it at a hardcoded 120bpm assumption.
+    auto laneBounds = getLocalBounds();
 
-    auto laneBounds = getLocalBounds().reduced (0, 4);
-    g.setColour (LAF::panel);
-    g.fillRect (laneBounds);
-
-    g.setColour (LAF::panelLight);
-    const int numBeats = (int) (visibleLengthSeconds / secondsPerBeatAt120Bpm);
-    for (int i = 0; i <= numBeats; ++i)
-    {
-        const auto x = xForTime (i * (double) secondsPerBeatAt120Bpm);
-        g.drawVerticalLine ((int) x, (float) laneBounds.getY(), (float) laneBounds.getBottom());
-    }
+    // A translucent backing strip behind ONLY the top control row (parameter
+    // selector + hint label), so those stay legible over dimmed clips of any
+    // track colour.
+    g.setColour (CrateColors::DarkBackground.withAlpha (0.6f));
+    g.fillRect (laneBounds.removeFromTop (16));
 
     if (selectedTimeRange.has_value())
     {
@@ -968,9 +972,9 @@ void AutomationLaneComponent::paint (juce::Graphics& g)
         const auto selX2 = xForTime (selectedTimeRange->getEnd());
         const juce::Rectangle<float> selRect (selX1, (float) laneBounds.getY(), selX2 - selX1, (float) laneBounds.getHeight());
 
-        g.setColour (LAF::accent.withAlpha (0.12f));
+        g.setColour (CrateColors::NeonBlue.withAlpha (0.12f));
         g.fillRect (selRect);
-        g.setColour (LAF::accent.withAlpha (0.6f));
+        g.setColour (CrateColors::NeonBlue.withAlpha (0.6f));
         g.drawRect (selRect, 1.5f);
     }
 
@@ -1022,7 +1026,11 @@ void AutomationLaneComponent::paint (juce::Graphics& g)
             }
         }
 
-        g.setColour (LAF::accent);
+        // V2.0 UI/UX Manifesto section 4: the active automation line is drawn
+        // strictly in the brand accent, CrateColors::NeonBlue — no separate
+        // "LAF::accent" indirection here, since this IS the canonical
+        // automation-active colour the Manifesto names explicitly.
+        g.setColour (CrateColors::NeonBlue);
         g.strokePath (path, juce::PathStrokeType (2.0f));
 
         for (auto& a : anchors)
@@ -1030,7 +1038,7 @@ void AutomationLaneComponent::paint (juce::Graphics& g)
             const auto x = xForTime (a.time);
             const auto y = yForValue (a.value);
 
-            g.setColour (a.id == draggingAnchorId ? juce::Colours::white : LAF::accent);
+            g.setColour (a.id == draggingAnchorId ? juce::Colours::white : CrateColors::NeonBlue);
             g.fillEllipse (x - 4.0f, y - 4.0f, 8.0f, 8.0f);
         }
 
@@ -1042,7 +1050,7 @@ void AutomationLaneComponent::paint (juce::Graphics& g)
                 continue;
 
             const auto handlePos = segmentMidPosition (i);
-            g.setColour (segId == draggingSegmentAnchorId ? juce::Colours::white : LAF::accent);
+            g.setColour (segId == draggingSegmentAnchorId ? juce::Colours::white : CrateColors::NeonBlue);
             g.drawEllipse (handlePos.x - tensionHandleDrawRadius, handlePos.y - tensionHandleDrawRadius,
                             tensionHandleDrawRadius * 2.0f, tensionHandleDrawRadius * 2.0f, 1.5f);
         }
@@ -1051,7 +1059,7 @@ void AutomationLaneComponent::paint (juce::Graphics& g)
 
         if (playheadX >= 0.0f && playheadX <= (float) getWidth())
         {
-            g.setColour (juce::Colour (0xffff3b30));
+            g.setColour (CrateColors::PlayheadRed);
             g.drawLine (playheadX, 0.0f, playheadX, (float) getHeight(), 2.0f);
         }
     }

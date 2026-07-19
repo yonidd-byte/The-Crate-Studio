@@ -72,7 +72,12 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
-    void mouseDown (const juce::MouseEvent&) override   { setSelected (true); if (onSelected) onSelected(); }
+
+    // Nuke the 'M' Button directive: Mute is now triggered by clicking the
+    // "MASTER" nameplate itself (Ableton nameplate-mute paradigm — matches
+    // MixerStrip's own trackNameLabel and the Arrangement's MasterHeaderRow),
+    // not a dedicated button — see the .cpp for the click-position check.
+    void mouseDown (const juce::MouseEvent&) override;
 
 private:
     void timerCallback() override;
@@ -86,7 +91,11 @@ private:
     // need its own separate listener for that any more.
     void rebuildInserts();
 
-    void refreshMuteState(); // reflects the master-volume mute threshold onto muteButton
+    // Reflects the master-volume mute threshold onto the nameplate's own
+    // colours (background/text) — mirrors MixerStrip::applyTrackColourToPlate(),
+    // just with no track colour to fall back to (Master's plate uses a fixed
+    // neutral, never track-coloured — see Return & Master Track Colors).
+    void refreshMuteState();
 
     // Channel Comp popup lifecycle — same fix as MixerStrip: manual toggle
     // driven strictly by the CallOutBox's real lifetime, so the button never
@@ -113,13 +122,12 @@ private:
     // Mirrors MixerStrip's strict bottom-up Logic anatomy, MINUS the components
     // Master lacks: no Solo, no Record/Input (L3), no Sends (L10). Master's
     // output is a fixed "Stereo Out", so L9 routing is a single read-only slot.
-    juce::Label      nameLabel;                          // L1
-    juce::TextButton muteButton { "M" };                 // L2 (Mute only)
+    juce::Label      nameLabel;                          // L1 — IS the Mute toggle now (Ableton nameplate-mute)
     juce::Slider     volumeFader { juce::Slider::LinearVertical, juce::Slider::NoTextBox }; // L4
     juce::Label      faderPositionLabel;                 // L5 (left)
     juce::Label      peakLevelLabel;                     // L5 (right)
     juce::Slider     panKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox }; // L6
-    // L7 track-icon — painted placeholder (trackIconBounds)
+    juce::Label      panValueLabel;                       // Pan readout ("C" / "20 L" / "20 R"), matches MixerStrip
     juce::Label      outputSlot;                          // L9 (Stereo Out, read-only)
     InsertsRackComponent insertsRack;                    // L11 (no L10 sends on Master)
     juce::TextButton channelCompButton { "Comp" };       // L12
@@ -131,7 +139,6 @@ private:
     juce::int64 peakHoldLastUpdateMs = 0;
 
     juce::Rectangle<float> meterBounds;   // computed in resized(), read by paint()
-    juce::Rectangle<int>   trackIconBounds; // L7 placeholder
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MasterStrip)
 };

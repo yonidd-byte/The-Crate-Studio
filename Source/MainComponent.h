@@ -175,6 +175,14 @@ private:
     // outlive a Load) — safe to construct once and leave alone across Load/rebuild.
     BrowserComponent browserDock;
 
+    // Sends-slot tooltip directive: every juce::Component::setTooltip() /
+    // TooltipClient::getTooltip() override in this app (CrateSendSlot's new
+    // one, the send knob's, the I/O combo boxes', etc.) has been silently
+    // inert with no TooltipWindow anywhere to poll for hover + render the
+    // popup — grepped, confirmed zero prior instances. One app-wide instance
+    // here makes all of them work at once. Not Edit-bound, constructed once.
+    juce::TooltipWindow tooltipWindow { this };
+
     // arrangement/mixer/deviceChain are destroyed and reconstructed by
     // rebuildUIForEdit() (Load), so their own isVisible() can't survive that as the
     // source of truth for view/zone state — these do, and rebuildUIForEdit()

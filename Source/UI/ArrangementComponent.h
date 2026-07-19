@@ -38,9 +38,11 @@ namespace te = tracktion::engine;
     way to the absolute bottom of its own column with no Master strip at all.
 
     Track selection is tracked here; the selected track's header highlights and is the
-    target for plugin instantiation. The 'A' toggle on a header (in the header column)
-    expands that track's automation lane (in the grid column) via a bridge callback —
-    see TrackListContent::setTrackAutomationVisible().
+    target for plugin instantiation. TrackListContent::setTrackAutomationVisible()
+    shows/hides a track's automation OVERLAY (drawn over its clips, not a second
+    lane) — the header's old 'A' toggle that used to call it was removed by the
+    Purge Clutter directive, so it currently has no UI caller; a future global
+    automation-view toggle or context-menu is meant to call it instead.
 */
 class ArrangementComponent : public juce::Component,
                               private juce::Timer
@@ -147,7 +149,7 @@ public:
 
 private:
     class TrackListContent;  // stacked LANE rows (grid + clips + automation) + playhead — NO header
-    class TrackRow;          // one lane: clip lane + optional automation lane, no header at all
+    class TrackRow;          // one fixed-height lane: clips + optional automation OVERLAY drawn on top, no header at all
 
     // Corrected Column Geometry: genuinely separate fixed-width column, docked
     // right, vertically synced to the grid viewport but never horizontally
@@ -159,6 +161,16 @@ private:
     // column only. The left-side MasterLaneRow was removed entirely (Lead
     // Architect correction: it was a dead ghost container blocking the grid).
     class MasterHeaderRow;
+
+    // Hybrid Bus/Return Architecture — return tracks (a plain te::AudioTrack
+    // hosting a te::AuxReturnPlugin, see Source/UI/TrackUtils.h::isReturnTrack())
+    // are split out of the regular scrollable track list and DOCKED instead,
+    // directly above MasterHeaderRow/its lane counterpart, non-scrolling —
+    // same "pinned, never scrolls" contract Master itself already has. These
+    // reuse TrackRow/TrackHeaderComponent as-is (identical rendering) — only
+    // the non-scrolling CONTAINER differs from TrackListContent/TrackHeaderColumn.
+    class ReturnLaneDock;
+    class ReturnHeaderDock;
 
     void addTrack (bool asMidiTrack);
     void layoutContent();
@@ -218,6 +230,12 @@ private:
     // Master — a single piece, pinned to the bottom of headerColumn's own
     // column (see resized()). No left-side lane piece any more.
     std::unique_ptr<MasterHeaderRow> masterHeader;
+
+    // Hybrid Bus/Return Architecture — docked directly above masterHeader/its
+    // lane slot (see resized()), sized to whatever height the current return
+    // tracks need and hidden entirely (0 height) when there are none.
+    std::unique_ptr<ReturnLaneDock> returnLaneDock;
+    std::unique_ptr<ReturnHeaderDock> returnHeaderDock;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ArrangementComponent)
 };

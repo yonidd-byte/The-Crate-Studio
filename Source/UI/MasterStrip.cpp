@@ -1,5 +1,7 @@
 #include "MasterStrip.h"
 #include "TheCrateLookAndFeel.h"
+#include "CrateColors.h"
+#include "CrateDesignSystem.h"
 #include "CrateEQThumbnail.h"
 #include "CrateCompressorPopup.h"
 
@@ -7,23 +9,47 @@ namespace
 {
     using LAF = TheCrateLookAndFeel;
 
-    constexpr float meterFloorDb = -60.0f;
-    constexpr float meterRangeDb = 66.0f;
-    constexpr int meterColumnWidth = 22;
+    // Cubase-style pan readout — identical text logic to MixerStrip's own
+    // panValueText(), ported verbatim (Restore Pan Readout Label directive)
+    // so Master's readout reads exactly like every real track's.
+    juce::String panValueText (float pan)
+    {
+        const int percent = juce::roundToInt (std::abs (pan) * 100.0f);
+        if (percent == 0)
+            return "C";
+        return pan < 0.0f ? ("< " + juce::String (percent) + " L")
+                           : (juce::String (percent) + " R >");
+    }
 
-    // Same bottom-up level heights as MixerStrip (kept in step deliberately, so
-    // Master and a real track strip line up level-for-level side by side).
-    constexpr int levelGap   = 4;
-    constexpr int nameH      = 20; // L1
-    constexpr int toggleH    = 22; // L2
-    constexpr int dbReadoutH = 16; // L5
-    constexpr int panH       = 42; // L6
-    constexpr int iconH      = 26; // L7
-    constexpr int routingH   = 22; // L9 (single read-only output slot)
-    constexpr int compH      = 24; // L12 — neat single-slot-height rect (opens a popup only)
-    constexpr int eqH        = 60; // L13
-    constexpr int settingsH  = 22; // L14
-    constexpr int outerMargin = 6;
+    // Design System Centralization: these are now thin aliases into
+    // CrateDesignSystem::Metrics::ChannelStrip — the SAME values MixerStrip
+    // reads (see that file's own identical alias block and
+    // CrateDesignSystem.h's doc comment on why the two are deliberately
+    // unified, not independently duplicated).
+    namespace DS = CrateDesignSystem::Metrics::ChannelStrip;
+    constexpr float meterFloorDb = DS::meterFloorDb;
+    constexpr float meterRangeDb = DS::meterRangeDb;
+    constexpr int meterColumnWidth = DS::meterColumnWidth;
+
+    // EXACT same bottom-up level heights/gaps as MixerStrip (including
+    // outerMargin, now 4 not 6) — Fader Alignment directive: Master carries
+    // the SAME blank-space budget a real track reserves for the icon and the
+    // R/S/I triad (it just never draws anything in them), so its fader rail
+    // starts and ends on the identical pixel line as every MixerStrip.
+    constexpr int levelGap   = DS::levelGap;
+    constexpr int scribbleIconH = DS::scribbleIconH; // blank — Master has no scribble-strip icon
+    constexpr int scribbleGap   = DS::scribbleGap;
+    constexpr int nameH      = DS::nameH; // L1
+    constexpr int tripletH   = DS::tripletH; // blank — Master has no R/S/I triad
+    constexpr int dbReadoutH = DS::dbReadoutH; // L5
+    constexpr int panH       = DS::panH; // L6
+    constexpr int panValueH   = DS::panValueH; // Pan readout label — matches MixerStrip
+    constexpr int panValueGap = DS::panValueGap;
+    constexpr int routingH   = DS::routingRowH; // L9 (single read-only output slot)
+    constexpr int compH      = DS::compH; // L12 — neat single-slot-height rect (opens a popup only)
+    constexpr int eqH        = DS::eqH; // L13
+    constexpr int settingsH  = DS::settingsH; // L14
+    constexpr int outerMargin = DS::outerMargin;
 }
 
 //==============================================================================
@@ -51,23 +77,15 @@ MasterStrip::MasterStrip (te::Edit& editToUse, CrateWorkflowManager& workflowToU
     nameLabel.setText ("MASTER", juce::dontSendNotification);
     nameLabel.setJustificationType (juce::Justification::centred);
     nameLabel.setColour (juce::Label::textColourId, LAF::colorTextPrimary);
-    nameLabel.setColour (juce::Label::backgroundColourId, juce::Colour (0xff6a3a6a)); // distinct master plate (violet)
+    nameLabel.setColour (juce::Label::backgroundColourId, juce::Colour (CrateDesignSystem::Colors::masterNameplateViolet)); // distinct master plate (violet)
     nameLabel.setColour (juce::Label::outlineColourId, LAF::colorFaderGroove);
-    nameLabel.setFont (juce::FontOptions (11.5f, juce::Font::bold));
-
-    // ---- L2: Mute (only) — real, via VolumeAndPanPlugin::muteOrUnmute() -------
-    addAndMakeVisible (muteButton);
-    muteButton.setClickingTogglesState (true);
-    muteButton.setColour (juce::TextButton::buttonOnColourId, LAF::colorMuteRed);
-    muteButton.onClick = [this]
-    {
-        if (volumePlugin == nullptr)
-            return;
-
-        volumePlugin->volParam->getEdit().getUndoManager().beginNewTransaction ("Mute Master");
-        volumePlugin->muteOrUnmute();
-        refreshMuteState();
-    };
+    nameLabel.setFont (juce::FontOptions (CrateDesignSystem::Typography::stripNameFontSize, juce::Font::bold));
+    // Nuke the 'M' Button directive: the nameplate IS the Mute toggle now
+    // (Ableton nameplate-mute paradigm — matches MixerStrip::trackNameLabel
+    // and ArrangementComponent::MasterHeaderRow). Clicks pass through to
+    // MasterStrip::mouseDown(), same reasoning as MixerStrip's trackNameLabel.
+    nameLabel.setInterceptsMouseClicks (false, false);
+    nameLabel.setTooltip ("Click to mute Master.");
 
     // ---- L4: Sexy fader -------------------------------------------------------
     addAndMakeVisible (volumeFader);
@@ -81,7 +99,7 @@ MasterStrip::MasterStrip (te::Edit& editToUse, CrateWorkflowManager& workflowToU
         l.setJustificationType (juce::Justification::centred);
         l.setColour (juce::Label::textColourId, LAF::lcdText);
         l.setColour (juce::Label::backgroundColourId, LAF::lcdBackground);
-        l.setFont (juce::FontOptions (9.5f));
+        l.setFont (juce::FontOptions (CrateDesignSystem::Typography::dbReadoutFontSize));
     };
     addAndMakeVisible (faderPositionLabel);
     styleReadout (faderPositionLabel);
@@ -97,6 +115,15 @@ MasterStrip::MasterStrip (te::Edit& editToUse, CrateWorkflowManager& workflowToU
     panKnob.setRotaryParameters (juce::MathConstants<float>::pi * 1.2f,
                                   juce::MathConstants<float>::pi * 2.8f, true);
 
+    // Pan value readout — Restore Pan Readout Label directive: EXACT same
+    // font size/colour/justification as MixerStrip::panValueLabel, so it
+    // reads flush with the readouts on every real track strip beside it.
+    addAndMakeVisible (panValueLabel);
+    panValueLabel.setJustificationType (juce::Justification::centred);
+    panValueLabel.setColour (juce::Label::textColourId, CrateColors::NeonBlue);
+    panValueLabel.setFont (juce::FontOptions (CrateDesignSystem::Typography::panValueFontSize, juce::Font::bold));
+    panValueLabel.setText ("C", juce::dontSendNotification);
+
     // ---- L9: Output slot (fixed Stereo Out, read-only) ------------------------
     // A plain Label — draws its own matching hardware-slot bevel by hand in
     // paint() below (see MixerStrip::RoutingBlock::paint()'s identical
@@ -106,7 +133,7 @@ MasterStrip::MasterStrip (te::Edit& editToUse, CrateWorkflowManager& workflowToU
     outputSlot.setJustificationType (juce::Justification::centred);
     outputSlot.setColour (juce::Label::textColourId, HardwareSlotLookAndFeel::dimTextColour);
     outputSlot.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    outputSlot.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    outputSlot.setFont (juce::FontOptions (CrateDesignSystem::Typography::outputSlotFontSize, juce::Font::bold));
 
     // ---- L11: Inserts (shared InsertsRackComponent) — no L10 sends on Master --
     addChildComponent (insertsRack);
@@ -141,6 +168,7 @@ MasterStrip::MasterStrip (te::Edit& editToUse, CrateWorkflowManager& workflowToU
         volumeFader.setValue (db, juce::dontSendNotification);
         faderPositionLabel.setText (juce::String (db, 1), juce::dontSendNotification);
         panKnob.setValue (volumePlugin->getPan(), juce::dontSendNotification);
+        panValueLabel.setText (panValueText (volumePlugin->getPan()), juce::dontSendNotification);
         refreshMuteState();
 
         volumeFader.onDragStart = [this]
@@ -162,7 +190,12 @@ MasterStrip::MasterStrip (te::Edit& editToUse, CrateWorkflowManager& workflowToU
             volumePlugin->panParam->parameterChangeGestureBegin();
         };
         panKnob.onDragEnd = [this] { volumePlugin->panParam->parameterChangeGestureEnd(); };
-        panKnob.onValueChange = [this] { volumePlugin->setPan ((float) panKnob.getValue()); };
+        panKnob.onValueChange = [this]
+        {
+            const auto pan = (float) panKnob.getValue();
+            volumePlugin->setPan (pan);
+            panValueLabel.setText (panValueText (pan), juce::dontSendNotification);
+        };
 
         volumePlugin->volParam->addListener (this);
         volumePlugin->panParam->addListener (this);
@@ -196,8 +229,39 @@ void MasterStrip::rebuildInserts()
 
 void MasterStrip::refreshMuteState()
 {
-    if (volumePlugin != nullptr)
-        muteButton.setToggleState (volumePlugin->getVolumeDb() <= -90.0f, juce::dontSendNotification);
+    if (volumePlugin == nullptr)
+        return;
+
+    const bool isMuted = volumePlugin->getVolumeDb() <= CrateDesignSystem::Metrics::Master::muteThresholdDb;
+
+    if (isMuted)
+    {
+        nameLabel.setColour (juce::Label::backgroundColourId, CrateColors::DarkBackground);
+        nameLabel.setColour (juce::Label::textColourId, CrateColors::BrandGray);
+    }
+    else
+    {
+        nameLabel.setColour (juce::Label::backgroundColourId, juce::Colour (CrateDesignSystem::Colors::masterNameplateViolet));
+        nameLabel.setColour (juce::Label::textColourId, LAF::colorTextPrimary);
+    }
+
+    nameLabel.repaint();
+}
+
+void MasterStrip::mouseDown (const juce::MouseEvent& e)
+{
+    setSelected (true);
+    if (onSelected)
+        onSelected();
+
+    // Nuke the 'M' Button directive: nameplate click toggles Master mute,
+    // same gesture as MixerStrip::trackNameLabel and MasterHeaderRow.
+    if (e.getNumberOfClicks() == 1 && nameLabel.getBounds().contains (e.getPosition()) && volumePlugin != nullptr)
+    {
+        volumePlugin->volParam->getEdit().getUndoManager().beginNewTransaction ("Mute Master");
+        volumePlugin->muteOrUnmute();
+        refreshMuteState();
+    }
 }
 
 void MasterStrip::openChannelCompPopup()
@@ -250,6 +314,7 @@ void MasterStrip::currentValueChanged (te::AutomatableParameter&)
     volumeFader.setValue (db, juce::dontSendNotification);
     faderPositionLabel.setText (juce::String (db, 1), juce::dontSendNotification);
     panKnob.setValue (volumePlugin->getPan(), juce::dontSendNotification);
+    panValueLabel.setText (panValueText (volumePlugin->getPan()), juce::dontSendNotification);
     refreshMuteState();
 }
 
@@ -290,7 +355,7 @@ void MasterStrip::paint (juce::Graphics& g)
     if (selected)
     {
         g.setColour (LAF::colorNeonCyan);
-        g.fillRect (0, 0, 3, getHeight());
+        g.fillRect (0, 0, CrateDesignSystem::Metrics::Master::selectedAccentStripeW, getHeight());
     }
 
     g.setColour (LAF::colorTheVoid);
@@ -302,19 +367,6 @@ void MasterStrip::paint (juce::Graphics& g)
     if (rackExpanded && outputSlot.isVisible())
     {
         HardwareSlotLookAndFeel::drawRaisedChip (g, outputSlot.getBounds().toFloat(), HardwareSlotLookAndFeel::fillColour);
-    }
-
-    // L7 track-icon placeholder.
-    if (! trackIconBounds.isEmpty())
-    {
-        auto ib = trackIconBounds.toFloat();
-        g.setColour (LAF::colorGhostedOff);
-        g.fillRoundedRectangle (ib, 3.0f);
-        g.setColour (LAF::colorFaderGroove);
-        g.drawRoundedRectangle (ib.reduced (0.5f), 3.0f, 1.0f);
-        g.setColour (LAF::colorTextSecondary);
-        g.setFont (juce::FontOptions (11.0f));
-        g.drawText ("M", trackIconBounds, juce::Justification::centred);
     }
 
     // L4 main meter.
@@ -342,19 +394,24 @@ void MasterStrip::paint (juce::Graphics& g)
 
 void MasterStrip::resized()
 {
-    // Same strict bottom-up idiom as MixerStrip::resized() — Master simply omits
-    // the levels it doesn't have (no L3 Record/Input, no L10 Sends).
+    // Fader Alignment directive: identical bottom-up idiom AND identical
+    // blank-space budget to MixerStrip::resized(), level-for-level, so the
+    // Master fader rail starts/ends on the exact same horizontal pixel lines
+    // as every real MixerStrip — Master just has nothing to draw in the
+    // blank slots (no scribble icon, no R/S/I triad, no pan-value readout).
     auto bounds = getLocalBounds().reduced (outerMargin);
 
-    // ----- Bottom group (L1 → L2) ---------------------------------------------
+    // ----- Bottom group (blank icon slot, L1, blank triplet slot) -------------
+    bounds.removeFromBottom (scribbleIconH); // blank — no scribble-strip icon on Master
+    bounds.removeFromBottom (scribbleGap);
+
     nameLabel.setBounds (bounds.removeFromBottom (nameH)); // L1
     bounds.removeFromBottom (levelGap);
 
-    muteButton.setBounds (bounds.removeFromBottom (toggleH).withSizeKeepingCentre (
-                              juce::jmin (bounds.getWidth(), 60), toggleH)); // L2 (Mute only, centred)
+    bounds.removeFromBottom (tripletH); // blank — no R/S/I triad on Master
     bounds.removeFromBottom (levelGap);
 
-    // ----- Top group (L14 → L9 when expanded, then L8 → L5) -------------------
+    // ----- Top group (L14 → L9 when expanded, then L6 → L5) -------------------
     if (rackExpanded)
     {
         settingsButton.setBounds (bounds.removeFromTop (settingsH));                 // L14
@@ -376,10 +433,10 @@ void MasterStrip::resized()
         bounds.removeFromTop (levelGap);
     }
 
-    trackIconBounds = bounds.removeFromTop (iconH).withSizeKeepingCentre (iconH, iconH); // L7
-    bounds.removeFromTop (levelGap);
-
     panKnob.setBounds (bounds.removeFromTop (panH).withSizeKeepingCentre (panH, panH)); // L6
+    bounds.removeFromTop (panValueGap);
+
+    panValueLabel.setBounds (bounds.removeFromTop (panValueH));
     bounds.removeFromTop (levelGap);
 
     {

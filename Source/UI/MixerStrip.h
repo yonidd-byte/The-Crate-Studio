@@ -6,6 +6,7 @@
 #include "CrateMixerLookAndFeel.h"
 #include "HardwareSlotLookAndFeel.h"
 #include "GhostButtonLookAndFeel.h"
+#include "CrateDesignSystem.h"
 #include "../CrateWorkflowManager.h"
 
 namespace te = tracktion::engine;
@@ -159,6 +160,14 @@ private:
 
     bool rackExpanded = false; // gates the deep L9–L14 stack's visibility/height
 
+    // R/S/I Return-Track Logic: computed ONCE in the constructor (a track's
+    // return-ness never changes across this strip's lifetime — the strip is
+    // destroyed/recreated on rebuild instead). Return tracks have no external
+    // input, so inputMonitorButton is hidden entirely and recordButton becomes
+    // a cosmetic Pre/Post toggle, mirroring TrackHeaderComponent's identical
+    // Return Track Button directive in the Arrangement.
+    bool isReturnTrackFlag = false;
+
     // Scoped narrowly to the fader/pan/combos/send-sliders (see setLookAndFeel
     // calls in the .cpp) — declared BEFORE the controls that use it so it's
     // still alive when they're destroyed (member destruction is
@@ -223,7 +232,7 @@ private:
 
     // The track's own colour — now shown as the name plate's fill itself
     // (unmuted state; see applyTrackColourToPlate()), not a separate strip.
-    juce::Colour trackAccentColour { 0xff30506a };
+    juce::Colour trackAccentColour { CrateDesignSystem::Colors::mixerStripDefaultAccent };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MixerStrip)
 };

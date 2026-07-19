@@ -86,13 +86,17 @@ namespace
 
     // Same utility-plugin exclusion MixerStrip's InsertsBlock uses — the device
     // chain shows things a user drags/reorders/generates with, not the always-
-    // present volume/pan/metering plumbing or aux sends (those live in the Pro
-    // Tools-style mixer strip instead).
+    // present volume/pan/metering plumbing or aux sends/returns (those live in
+    // the Pro Tools-style mixer strip's Sends section instead — Hybrid Bus/
+    // Return Architecture: AuxReturnPlugin is the OTHER half of a bus, same
+    // "internal routing plumbing, not a user-facing effect" category
+    // AuxSendPlugin already was).
     bool isChainablePlugin (const te::Plugin& p)
     {
         return dynamic_cast<const te::VolumeAndPanPlugin*> (&p) == nullptr
             && dynamic_cast<const te::LevelMeterPlugin*> (&p) == nullptr
-            && dynamic_cast<const te::AuxSendPlugin*> (&p) == nullptr;
+            && dynamic_cast<const te::AuxSendPlugin*> (&p) == nullptr
+            && dynamic_cast<const te::AuxReturnPlugin*> (&p) == nullptr;
     }
 
     //==========================================================================

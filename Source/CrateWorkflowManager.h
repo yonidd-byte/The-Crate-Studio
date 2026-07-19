@@ -79,6 +79,35 @@ public:
         Undo transaction. No-op if nothing is selected. */
     void deleteSelectedTrack();
 
+    /** Hybrid Bus/Return Architecture — the Sends "+" menu's
+        "+ Create New FX Channel" macro. Creates a real return track (a plain
+        te::AudioTrack hosting a te::AuxReturnPlugin — see
+        Source/UI/TrackUtils.h's isReturnTrack()) and wires a matching
+        te::AuxSendPlugin on sourceTrack to the same bus number, all in one
+        Undo transaction. Wrapped in a single Undo transaction — one Ctrl+Z
+        removes the whole channel, send included.
+
+        Fires onTrackListChanged() at the end — this is called from deep
+        inside a MixerStrip/InspectorStrip Sends menu, several component
+        layers away from ArrangementComponent/MixerComponent's own track
+        lists, which otherwise have no way to learn a new track now exists
+        (their rebuild triggers all live in MainComponent's onDeleteTrackRequested/
+        addTrack paths, neither of which this call goes through). */
+    void createAndRouteNewFXChannel (te::Track& sourceTrack);
+
+    /** Fires whenever a method on this class adds or removes a track
+        OUTSIDE the normal ArrangementComponent::addTrack()/onDeleteTrackRequested
+        paths (which already call rebuildTracks() themselves) — currently just
+        createAndRouteNewFXChannel(). MainComponent wires this once, centrally,
+        to arrangement->rebuildTracks() (which already cascades to
+        mixer->rebuildStrips() via its own onTracksChanged), rather than
+        threading a bespoke callback through every intermediate component
+        (MixerStrip -> StripRowContent -> MixerComponent -> MainComponent,
+        and separately InspectorStrip -> CrateTrackInspectorComponent ->
+        BrowserComponent -> MainComponent) that could ever call
+        createAndRouteNewFXChannel(). */
+    std::function<void()> onTrackListChanged;
+
     //==============================================================================
     // Automation persistence (fixes the "~30 baked sub-points become 30 anchors on
     // reload" bug). The real fix is NOT a pre-save/post-load pass: AutomationLaneComponent

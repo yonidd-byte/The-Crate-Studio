@@ -88,8 +88,8 @@ public:
     inline static const juce::Colour colorNeonCyan      = CrateColors::NeonBlue;        // the strictly-rationed accent
     inline static const juce::Colour colorTextPrimary   { 0xffffffff }; // pure white — not brand chrome, universal text-on-dark
     inline static const juce::Colour colorTextSecondary = CrateColors::BrandGray;
-    inline static const juce::Colour colorMuteRed       { 0xffff3b30 }; // matte, non-blinding — semantic status colour, see above
-    inline static const juce::Colour colorSoloYellow    { 0xffffcc00 }; // matte, non-blinding — semantic status colour, see above
+    inline static const juce::Colour colorMuteRed       = CrateColors::MuteRed;    // matte, non-blinding — semantic status colour, see above
+    inline static const juce::Colour colorSoloYellow    = CrateColors::SoloYellow; // matte, non-blinding — semantic status colour, see above
 
     // Ghosted-button OFF fill (section 3) and the recessed fader groove —
     // both now flattened to the strict 4-colour hierarchy (see above).

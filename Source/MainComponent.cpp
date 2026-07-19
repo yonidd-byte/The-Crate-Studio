@@ -18,6 +18,20 @@ MainComponent::MainComponent()
     : workflow (std::make_unique<CrateWorkflowManager>()),
       browserDock (*workflow)
 {
+    // Hybrid Bus/Return Architecture — createAndRouteNewFXChannel() (called
+    // from deep inside a MixerStrip/InspectorStrip Sends menu) has no other
+    // way to tell ArrangementComponent/MixerComponent a new track now
+    // exists. Wired ONCE here, not inside rebuildUIForEdit(): `workflow`
+    // itself persists across a project Load (only its internal Edit swaps —
+    // see this class's own doc comment), and the lambda reads `arrangement`
+    // at CALL time, so it stays correct even after rebuildUIForEdit()
+    // replaces that unique_ptr with a fresh instance.
+    workflow->onTrackListChanged = [this]
+    {
+        if (arrangement != nullptr)
+            arrangement->rebuildTracks(); // cascades to mixer->rebuildStrips() via its own onTracksChanged
+    };
+
     addAndMakeVisible (browserDock);
 
     // Hybrid Device & Mixer Paradigm — NOT Edit-bound (see its own doc
@@ -114,6 +128,23 @@ void MainComponent::rebuildUIForEdit()
         // plugins.
         if (deviceChain->getCurrentTrack() == t)
             deviceChain->clearTrack();
+
+        // UAF fix (QA pass): the Inspector needed the EXACT same guard as
+        // deviceChain above and never got it. Unlike deviceChain/MixerStrip,
+        // CrateTrackInspectorComponent is long-lived (constructed once, just
+        // re-pointed on every selection change) and its InspectorStrip
+        // instances registered a live te::AutomatableParameter::Listener on
+        // this track's volParam/panParam — clearing it unconditionally BEFORE
+        // deleteSelectedTrack() runs setTrack(nullptr)'s teardown (listener
+        // removal) while the plugin is still alive. Unconditional (not gated
+        // on "is this the currently-shown track" like deviceChain's guard
+        // above) since BrowserComponent exposes no getSelectedTrack() query
+        // and setTrack(nullptr) on an already-empty Inspector is a harmless
+        // no-op. (InspectorStrip's track/volumePlugin/meterPlugin were also
+        // hardened to reference-counted Ptrs, so even a future path that
+        // forgets this call can no longer crash — this just avoids relying
+        // on that safety net.)
+        browserDock.setSelectedTrack (nullptr);
 
         workflow->deleteSelectedTrack();
         arrangement->rebuildTracks();

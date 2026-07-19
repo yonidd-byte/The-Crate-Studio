@@ -22,9 +22,17 @@ namespace
     // "inserts" in the Pro Tools sense.
     bool isUtilityPlugin (const te::Plugin& p)
     {
+        // Filter Engine Plumbing directive: AuxReturnPlugin is the Hybrid
+        // Bus/Return Architecture's real DSP backing a return track (see
+        // CrateWorkflowManager::createAndRouteNewFXChannel()) — engine
+        // plumbing, not a user-loaded insert, same as AuxSendPlugin already
+        // filtered below. Already hidden from UniversalDeviceChainComponent;
+        // this is the identical filter for the Inserts rack (shared by
+        // MixerStrip, MasterStrip, and the Track Inspector).
         return dynamic_cast<const te::VolumeAndPanPlugin*> (&p) != nullptr
             || dynamic_cast<const te::LevelMeterPlugin*> (&p) != nullptr
-            || dynamic_cast<const te::AuxSendPlugin*> (&p) != nullptr;
+            || dynamic_cast<const te::AuxSendPlugin*> (&p) != nullptr
+            || dynamic_cast<const te::AuxReturnPlugin*> (&p) != nullptr;
     }
 }
 

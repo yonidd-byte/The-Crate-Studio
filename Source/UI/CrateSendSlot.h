@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "TheCrateLookAndFeel.h"
 #include "HardwareSlotLookAndFeel.h"
+#include "CrateDesignSystem.h"
 
 /**
     Logic Pro-style inline Send slot — one compact horizontal row combining a
@@ -26,7 +27,8 @@
     destination chip toggles it, dimming the chip when off. Leave it unset for
     a purely visual/scaffold usage).
 */
-class CrateSendSlot : public juce::Component
+class CrateSendSlot : public juce::Component,
+                       public juce::TooltipClient
 {
 public:
     explicit CrateSendSlot (const juce::String& busName)
@@ -73,6 +75,17 @@ public:
 
     juce::Slider& getAmountKnob() noexcept   { return amountKnob; }
 
+    // juce::TooltipClient — the compact chip only ever shows "Bus N" (there's
+    // no room for more in a strict grid slot), so hovering the WHOLE slot
+    // reveals the full destination name here instead. Requires a
+    // juce::TooltipWindow to exist somewhere in the app for this to actually
+    // render (see MainComponent's tooltipWindow member) — this override alone
+    // does nothing without one. "Bus N (descriptive name)" is aspirational
+    // until a real FX-return-track naming mechanism exists (see
+    // CrateWorkflowManager::createAndRouteNewFXChannel()'s doc comment) — for
+    // now this is just "Destination: Bus N", the honest current reality.
+    juce::String getTooltip() override   { return "Destination: " + busName_; }
+
     void setLookAndFeelForKnob (juce::LookAndFeel* laf)   { amountKnob.setLookAndFeel (laf); }
 
     ~CrateSendSlot() override   { amountKnob.setLookAndFeel (nullptr); }
@@ -99,10 +112,11 @@ public:
 
         const auto bounds = chipBounds.toFloat();
 
-        SlotLAF::drawRaisedChip (g, bounds, bypassed ? SlotLAF::fillColour.darker (0.3f) : SlotLAF::fillColour);
+        namespace DS = CrateDesignSystem::Metrics::SendSlot;
+        SlotLAF::drawRaisedChip (g, bounds, bypassed ? SlotLAF::fillColour.darker (DS::bypassedDarken) : SlotLAF::fillColour);
 
-        g.setColour (bypassed ? SlotLAF::dimTextColour.withAlpha (0.4f) : SlotLAF::dimTextColour);
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.setColour (bypassed ? SlotLAF::dimTextColour.withAlpha (DS::dimAlpha) : SlotLAF::dimTextColour);
+        g.setFont (juce::FontOptions (CrateDesignSystem::Typography::sendChipFontSize, juce::Font::bold));
         g.drawText (busName_, chipBounds, juce::Justification::centred);
     }
 
@@ -113,12 +127,13 @@ public:
         // other rack-family control (OUT 1+2, No Group, Read) whose parent
         // container is positioned with the identical rackMargin+rackButtonPadding
         // offset in MixerStrip::resized().
-        auto area = getLocalBounds().reduced (0, 1);
+        namespace DS = CrateDesignSystem::Metrics::SendSlot;
+        auto area = getLocalBounds().reduced (0, DS::verticalReduce);
 
         // Strict 70/30 split — destination chip left, knob right.
-        const int knobWidth = juce::roundToInt ((float) area.getWidth() * 0.30f);
+        const int knobWidth = juce::roundToInt ((float) area.getWidth() * DS::destinationChipRatio);
         amountKnob.setBounds (area.removeFromRight (juce::jmax (knobWidth, area.getHeight())));
-        area.removeFromRight (3);
+        area.removeFromRight (DS::knobGap);
         chipBounds = area; // painted by hand in paint() — see class doc comment
     }
 

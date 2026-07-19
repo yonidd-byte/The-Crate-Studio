@@ -10,11 +10,24 @@
 */
 namespace CrateArrangement
 {
-    inline constexpr int headerWidth    = 200;
-    inline constexpr int clipLaneHeight = 104;  // main clip lane row height — fits the
-                                                 // Ableton-style header's IO text, R/S/M/A
-                                                 // row, volume fader, and live meter bar
-    inline constexpr int autoLaneHeight = 100;  // extra height added when automation is expanded
+    inline constexpr int headerWidth    = 300; // widened for the 3-column hybrid header
+                                                // (Identity / Routing+Auto / Mini-Mixer) —
+                                                // 200px suffocated the pan knob + stacked
+                                                // routing combos; Ableton's own track
+                                                // headers run this wide for the same reason.
+    inline constexpr int clipLaneHeight = 90;   // EXPANDED clip lane row height — matches
+                                                 // Ableton's own default expanded track
+                                                 // height exactly (Lead Architect directive;
+                                                 // the previous 104px created dead space).
+                                                 // ALSO the automation overlay's height
+                                                 // (In-Track Automation Overlay draws the
+                                                 // curve directly over this same lane rather
+                                                 // than in a second lane).
+    inline constexpr int collapsedLaneHeight = 30; // COLLAPSED (folded) micro-state row
+                                                    // height — Cubase/Ableton-style fold: a
+                                                    // single sleek strip (fold arrow, colour
+                                                    // strip, name, mute plate, S/R, thin
+                                                    // meter). Column 2 + pan + volume hide.
     inline constexpr int rulerHeight    = 24;
     inline constexpr int toolbarHeight  = 34;
 

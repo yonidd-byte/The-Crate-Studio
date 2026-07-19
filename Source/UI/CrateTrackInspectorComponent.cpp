@@ -200,7 +200,8 @@ private:
 class CrateTrackInspectorComponent::InspectorStrip : public juce::Component,
                                                        private juce::Timer,
                                                        private juce::ValueTree::Listener,
-                                                       private juce::ComponentListener // watches the Channel Comp CallOutBox lifecycle — see showCompressorPopup()
+                                                       private juce::ComponentListener, // watches the Channel Comp CallOutBox lifecycle — see showCompressorPopup()
+                                                       private te::AutomatableParameter::Listener // Pan/Fader <-> VolumeAndPanPlugin binding — see setTrack()
 {
 public:
     // canMute: only the LEFT (selected-track) strip's name plate becomes the
@@ -311,8 +312,29 @@ public:
         panKnob.setRange (-1.0, 1.0, 0.01);
         panKnob.setDoubleClickReturnValue (true, 0.0);
         panKnob.setLookAndFeel (sharedLaf);
+        // Real binding (Inspector Sync fix): writes through to volumePlugin (set
+        // by setTrack()) — a member reference read at CALL time, not captured per
+        // track, so these lambdas stay correct across every setTrack() switch
+        // without needing to be reassigned. Guarded null-checks make this a no-op
+        // whenever no track (or a track with no volume plugin) is selected.
+        // Undo transaction + parameterChangeGesture bracket the drag exactly like
+        // MixerStrip's / TrackHeaderComponent's own pan knobs.
+        panKnob.onDragStart = [this]
+        {
+            if (volumePlugin == nullptr) return;
+            volumePlugin->panParam->getEdit().getUndoManager().beginNewTransaction (
+                "Tweak Pan: " + (track != nullptr ? track->getName() : juce::String()));
+            volumePlugin->panParam->parameterChangeGestureBegin();
+        };
+        panKnob.onDragEnd = [this]
+        {
+            if (volumePlugin != nullptr) volumePlugin->panParam->parameterChangeGestureEnd();
+        };
         panKnob.onValueChange = [this]
         {
+            if (volumePlugin != nullptr)
+                volumePlugin->setPan ((float) panKnob.getValue());
+
             panValueLabel.setText (panValueText ((float) panKnob.getValue()), juce::dontSendNotification);
         };
         addAndMakeVisible (panKnob);
@@ -352,8 +374,26 @@ public:
         fader.setValue (0.0, juce::dontSendNotification);
         fader.setDoubleClickReturnValue (true, 0.0);
         fader.setLookAndFeel (sharedLaf);
+        // Real binding (Inspector Sync fix) — same "member read at call time"
+        // reasoning as panKnob above, same undo/gesture bracket MixerStrip's
+        // own volumeFader uses (volParam is an AutomatableParameter exactly
+        // like panParam — the drag needs the same gesture markers).
+        fader.onDragStart = [this]
+        {
+            if (volumePlugin == nullptr) return;
+            volumePlugin->volParam->getEdit().getUndoManager().beginNewTransaction (
+                "Tweak Volume: " + (track != nullptr ? track->getName() : juce::String()));
+            volumePlugin->volParam->parameterChangeGestureBegin();
+        };
+        fader.onDragEnd = [this]
+        {
+            if (volumePlugin != nullptr) volumePlugin->volParam->parameterChangeGestureEnd();
+        };
         fader.onValueChange = [this]
         {
+            if (volumePlugin != nullptr)
+                volumePlugin->setVolumeDb ((float) fader.getValue());
+
             faderPositionLabel.setText (juce::String (fader.getValue(), 1), juce::dontSendNotification);
         };
         faderPositionLabel.setText (juce::String (fader.getValue(), 1), juce::dontSendNotification);
@@ -377,6 +417,12 @@ public:
     ~InspectorStrip() override
     {
         stopTimer();
+
+        if (volumePlugin != nullptr)
+        {
+            volumePlugin->volParam->removeListener (this);
+            volumePlugin->panParam->removeListener (this);
+        }
 
         if (meterPlugin != nullptr)
             meterPlugin->measurer.removeClient (meterClient);
@@ -425,8 +471,18 @@ public:
             meterPlugin->measurer.removeClient (meterClient);
         meterPlugin = nullptr;
 
-        track = newTrack;
-        isMaster = (dynamic_cast<te::MasterTrack*> (track) != nullptr);
+        // Inspector Sync fix — identical listener registration synced on every
+        // setTrack() call: unregister from the OLD volumePlugin (mirrors the
+        // meterPlugin teardown right above) before track is reassigned below.
+        if (volumePlugin != nullptr)
+        {
+            volumePlugin->volParam->removeListener (this);
+            volumePlugin->panParam->removeListener (this);
+        }
+        volumePlugin = nullptr;
+
+        track = newTrack; // Ptr assignment from a raw engine pointer — adds OUR reference
+        isMaster = (dynamic_cast<te::MasterTrack*> (track.get()) != nullptr);
 
         sendsContent->rebuild (track, laf); // pan_knob.png image asset, same as the main Pan knob — see Revert Send Knobs directive
         refreshSendsViewport();
@@ -439,6 +495,20 @@ public:
             meterPlugin = track->pluginList.findFirstPluginOfType<te::LevelMeterPlugin>();
             if (meterPlugin != nullptr)
                 meterPlugin->measurer.addClient (meterClient);
+
+            // Inspector Sync fix — bind fader/panKnob to the EXACT same
+            // VolumeAndPanPlugin the Arrangement TrackHeader and MixerStrip
+            // manipulate for this same track, so this strip stops being deaf to
+            // external changes. Both an immediate refresh (so a freshly-selected
+            // track shows its real values right away) and the live listener
+            // (so it keeps updating afterward) are needed here.
+            volumePlugin = resolveVolumePlugin();
+            if (volumePlugin != nullptr)
+            {
+                volumePlugin->volParam->addListener (this);
+                volumePlugin->panParam->addListener (this);
+                refreshVolPanFromEngine();
+            }
 
             if (supportsMuteToggle)
                 applyTrackColourToPlate();
@@ -665,39 +735,16 @@ private:
         // authority MainComponent itself uses everywhere else, instead of
         // going through track->edit (a cached track pointer's own reference).
         auto& edit = workflow.getEdit();
-        const auto scan = SendBusUtils::scanBuses (edit, track);
-        const auto& busesInUseAnywhere = scan.busesInUseAnywhere;
-        const auto& busesThisTrackAlreadyUses = scan.busesThisTrackAlreadyUses;
+        const auto scan = SendBusUtils::scanBuses (edit, track.get());
 
-        // UX Fix (Grey-out, not hide): EVERY bus that exists anywhere in the
-        // project is listed — a bus this track already sends to shows
-        // disabled (greyed-out, unclickable) instead of silently vanishing,
-        // which read as "the system lost track of it." Mirrors MixerStrip's
-        // identical fix exactly.
-        juce::PopupMenu menu;
-        std::map<int, int> menuIdToBusNumber; // juce::PopupMenu item ID -> bus number
-        int nextItemId = 1;
-
-        for (int bus : busesInUseAnywhere)
-        {
-            const bool alreadyRouted = busesThisTrackAlreadyUses.count (bus) > 0;
-            const juce::String label = alreadyRouted ? ("Bus " + juce::String (bus) + " (Already Sending)")
-                                                      : ("Add Send to Bus " + juce::String (bus));
-
-            menu.addItem (nextItemId, label, ! alreadyRouted);
-            menuIdToBusNumber[nextItemId] = bus;
-            ++nextItemId;
-        }
-
-        // Strict Sends Menu Logic: if zero buses exist ANYWHERE in the project
-        // yet, do NOT show "Add Send to Bus 1" — that bus doesn't actually
-        // exist. Only ever list REAL existing buses (the loop above), plus
-        // "Create New Bus..." unconditionally.
-        if (! menuIdToBusNumber.empty())
-            menu.addSeparator();
-
-        const int createNewBusItemId = nextItemId;
-        menu.addItem (createNewBusItemId, "Create New Bus...");
+        // Menu contents now come from SendBusUtils::buildSendMenu() (Hybrid
+        // Bus/Return Architecture directive) — one source of truth for the
+        // label formatting/separator/macro-item layout, shared with
+        // MixerStrip's identical menu.
+        auto menuBuild = SendBusUtils::buildSendMenu (edit, scan);
+        auto& menu = menuBuild.menu;
+        auto& menuIdToBusNumber = menuBuild.menuIdToBusNumber;
+        const int createFXChannelItemId = menuBuild.createFXChannelItemId;
 
         // Async — never blocks the message thread, and safe against this
         // strip (or its track) going away before the user picks something:
@@ -705,29 +752,40 @@ private:
         // both "the whole Inspector strip was destroyed" and "the user
         // switched to a different/no track while the menu was open."
         juce::Component::SafePointer<InspectorStrip> safeThis (this);
-        te::Track* trackAtMenuOpenTime = track;
+        te::Track::Ptr trackAtMenuOpenTime = track; // ref-counted — see the UAF fix note below
+        CrateWorkflowManager* workflowPtr = &workflow; // long-lived (owned by MainComponent)
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (addSendButton),
-            [safeThis, trackAtMenuOpenTime, menuIdToBusNumber, createNewBusItemId, busesInUseAnywhere] (int result)
+            [safeThis, trackAtMenuOpenTime, menuIdToBusNumber, createFXChannelItemId, workflowPtr] (int result)
             {
-                if (result == 0 || safeThis == nullptr || safeThis->track != trackAtMenuOpenTime)
+                if (result == 0 || safeThis == nullptr || safeThis->track.get() != trackAtMenuOpenTime.get())
                     return; // dismissed, or the strip/selection moved on
 
-                int busNumber = -1;
-
-                if (result == createNewBusItemId)
+                if (result == createFXChannelItemId)
                 {
-                    busNumber = 1;
-                    while (busesInUseAnywhere.count (busNumber) > 0)
-                        ++busNumber;
-                }
-                else if (auto it = menuIdToBusNumber.find (result); it != menuIdToBusNumber.end())
-                {
-                    busNumber = it->second;
+                    // Use-After-Free fix (same root cause as MixerStrip::addNewSend's
+                    // identical menu): createAndRouteNewFXChannel() creates a new
+                    // track, which fires CrateWorkflowManager::onTrackListChanged ->
+                    // ArrangementComponent::rebuildTracks() -> MixerComponent::
+                    // rebuildStrips(). This InspectorStrip isn't itself destroyed by
+                    // that cascade today, but calling it synchronously here still
+                    // ran the Mixer's whole teardown/rebuild mid-callback, on this
+                    // Send-menu callback's own call stack — deferred via callAsync
+                    // so that rebuild always runs on a clean message-loop iteration
+                    // instead, matching MixerStrip's own fix and no longer
+                    // depending on which docks happen to survive the cascade today.
+                    // trackAtMenuOpenTime is a ref-counted Ptr, so the real engine
+                    // track stays alive across the hop regardless.
+                    juce::MessageManager::callAsync ([workflowPtr, trackAtMenuOpenTime]
+                    {
+                        if (trackAtMenuOpenTime != nullptr)
+                            workflowPtr->createAndRouteNewFXChannel (*trackAtMenuOpenTime);
+                    });
+                    return;
                 }
 
-                if (busNumber > 0)
-                    safeThis->createSendToBus (busNumber);
+                if (auto it = menuIdToBusNumber.find (result); it != menuIdToBusNumber.end())
+                    safeThis->createSendToBus (it->second);
             });
     }
 
@@ -817,6 +875,45 @@ private:
         captionLabel.repaint();
     }
 
+    // Inspector Sync fix — resolves volumePlugin for the CURRENT track (raw
+    // te::Track*, so it must handle both AudioTrack and MasterTrack, unlike
+    // MixerStrip which only ever binds one AudioTrack for its whole lifetime).
+    // te::Track has no virtual getVolumePlugin() — AudioTrack and MasterTrack
+    // reach their VolumeAndPanPlugin through entirely different paths (a plugin
+    // on the track's own pluginList vs. edit.getMasterVolumePlugin()).
+    te::VolumeAndPanPlugin::Ptr resolveVolumePlugin() const
+    {
+        if (track == nullptr)
+            return nullptr;
+
+        if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+            return audioTrack->getVolumePlugin(); // raw -> Ptr, implicit — adds a reference
+
+        if (dynamic_cast<te::MasterTrack*> (track.get()) != nullptr)
+            return workflow.getEdit().getMasterVolumePlugin(); // already a Ptr
+
+        return nullptr;
+    }
+
+    // Pushes volumePlugin's CURRENT engine values into fader/panKnob — called
+    // once from setTrack() (so a freshly-selected track shows its real values
+    // immediately) and from currentValueChanged() (so an external change, e.g.
+    // the Arrangement TrackHeader's own fader/pan knob, mirrors here live).
+    // dontSendNotification: this is the engine -> UI direction, so it must NOT
+    // re-trigger onValueChange (which would just write the same value straight
+    // back to the engine).
+    void refreshVolPanFromEngine()
+    {
+        if (volumePlugin == nullptr)
+            return;
+
+        fader.setValue (volumePlugin->getVolumeDb(), juce::dontSendNotification);
+        faderPositionLabel.setText (juce::String (fader.getValue(), 1), juce::dontSendNotification);
+
+        panKnob.setValue (volumePlugin->getPan(), juce::dontSendNotification);
+        panValueLabel.setText (panValueText (volumePlugin->getPan()), juce::dontSendNotification);
+    }
+
     void mouseDown (const juce::MouseEvent& e) override
     {
         if (! supportsMuteToggle || track == nullptr)
@@ -831,7 +928,7 @@ private:
         if (e.getNumberOfClicks() != 1)
             return;
 
-        auto* audioTrack = dynamic_cast<te::AudioTrack*> (track);
+        auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get());
         if (audioTrack == nullptr)
             return;
 
@@ -857,6 +954,27 @@ private:
 
         if (property == te::IDs::mute || property == te::IDs::colour)
             applyTrackColourToPlate();
+    }
+
+    // te::AutomatableParameter::Listener — Inspector Sync fix. Fires when
+    // Volume/Pan change from ANYWHERE ELSE (the Arrangement TrackHeader's
+    // fader/pan knob, MixerStrip's, automation playback, a script) — not just
+    // this strip's own fader/panKnob. Same message-thread-only + SafePointer
+    // deferral TrackHeaderComponent's identical listener uses (TE itself
+    // asserts this fires message-thread-only; the callAsync buys safety
+    // against a track-deletion racing the deferred lambda, not an audio-thread
+    // hazard). Refreshes both controls unconditionally — cheaper than tracking
+    // which of volParam/panParam actually changed.
+    void curveHasChanged (te::AutomatableParameter&) override {}
+    void currentValueChanged (te::AutomatableParameter&) override
+    {
+        juce::Component::SafePointer<InspectorStrip> safeThis (this);
+
+        juce::MessageManager::callAsync ([safeThis]
+        {
+            if (safeThis != nullptr)
+                safeThis->refreshVolPanFromEngine();
+        });
     }
 
     // Live Sync Bug fix — mirrors MixerStrip's own valueTreeChildAdded/Removed
@@ -951,7 +1069,24 @@ private:
     juce::Label  faderPositionLabel, peakLevelLabel; // dB readouts, between Pan and Fader — ported from MixerStrip's L5
     juce::Slider fader   { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
 
-    te::Track* track = nullptr; // raw, non-owning — lifetime owned by the Edit
+    // UAF fix: track/volumePlugin/meterPlugin were all raw, non-owning pointers
+    // — since InspectorStrip is LONG-LIVED (constructed once, re-pointed via
+    // setTrack() on every selection change, unlike MixerStrip/TrackHeaderComponent
+    // which are destroyed+recreated whenever a track goes away), a track
+    // deletion that happened to be the currently-inspected one left this strip
+    // holding dangling pointers with an ACTIVE te::AutomatableParameter::Listener
+    // registration still attached — a real, confirmed use-after-free (see
+    // MainComponent.cpp's onDeleteTrackRequested for the other half of this fix).
+    // All three are now REFERENCE-COUNTED: assigning a raw engine pointer into
+    // a Ptr member (below, in setTrack()) adds OUR OWN reference, so the
+    // underlying object stays alive until WE release it — regardless of
+    // whether the track's own pluginList/Edit drops its reference first. This
+    // makes the class of bug structurally impossible, independent of get
+    // ting the teardown-ordering exactly right at every call site.
+    te::Track::Ptr track; // was: te::Track* track = nullptr;
+    // te::VolumeAndPanPlugin::Ptr — same alias TrackHeaderComponent's own
+    // (already-safe) volumePlugin member uses.
+    te::VolumeAndPanPlugin::Ptr volumePlugin;
     bool isMaster = false;
     const bool supportsMuteToggle; // true for the LEFT (selected-track) strip only
     CrateWorkflowManager& workflow; // the Inspector "Mirror" fix — addNewSend() queries workflow.getEdit() directly, not track->edit
@@ -959,7 +1094,11 @@ private:
     // Real, live meter state — wired to the track's te::LevelMeterPlugin via
     // meterClient in setTrack()/timerCallback(), same pattern MixerStrip uses.
     // Starts at the -INF floor and stays there whenever no track/meter is set.
-    te::LevelMeterPlugin* meterPlugin = nullptr; // raw: lifetime owned by track->pluginList
+    // te::LevelMeterPlugin has no dedicated ::Ptr alias (only the base
+    // te::Plugin::Ptr exists) — juce::ReferenceCountedObjectPtr instantiated
+    // directly against the DERIVED type gives both ref-counting AND typed
+    // ->measurer access in one member, no separate raw pointer needed.
+    juce::ReferenceCountedObjectPtr<te::LevelMeterPlugin> meterPlugin;
     te::LevelMeasurer::Client meterClient;
     float meterLevelDb = meterFloorDb;
     float peakHoldDb = meterFloorDb;

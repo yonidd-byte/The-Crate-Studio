@@ -55,6 +55,7 @@ public:
     std::function<void (te::Plugin*)> onMasterInsertSelected;
 
     void paint (juce::Graphics&) override;
+    void paintOverChildren (juce::Graphics&) override;
     void resized() override;
 
 private:
@@ -72,6 +73,13 @@ private:
 
     juce::Viewport viewport;
     std::unique_ptr<StripRowContent> content;
+
+    // Hybrid Bus/Return Architecture — return-track strips (TrackUtils::
+    // isReturnTrack()), pinned directly left of masterStrip, OUTSIDE the
+    // scrolling viewport — same StripRowContent class as `content`, just a
+    // second instance placed via setBounds() instead of viewport-wrapped.
+    std::unique_ptr<StripRowContent> returnStripDock;
+    juce::Rectangle<int> returnDividerBounds; // computed in resized(), painted in paintOverChildren()
 
     // Master — genuinely PINNED to the far right: a fixed dock OUTSIDE the
     // scrolling viewport (not the last item inside StripRowContent), so it

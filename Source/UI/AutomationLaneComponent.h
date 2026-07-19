@@ -9,6 +9,16 @@ namespace te = tracktion::engine;
     Phase 5: automation curve editor for a single AutomatableParameter, generic over
     getValueRange() (not hardcoded to volume/dB).
 
+    In-Track Automation Overlay (V2.0 UI/UX Manifesto section 4): sized to the
+    OWNER TrackRow's full bounds and layered directly on top of its clips
+    (TrackRow::setAutomationVisible() gives it the row's own getLocalBounds()
+    and toFront()s it), rather than occupying a second lane stacked beneath
+    the clip lane. paint() therefore draws no opaque background of its own —
+    only a curve, anchors, and a small translucent backing strip behind the
+    parameter-selector row — so the (deliberately dimmed, via
+    TrackRow::updateClipDimming()) clips underneath stay visible as
+    background reference while this is showing.
+
     Architecture — "baked power curve":
     TE's native AutomationPoint::curve is a bezier tension (soft, rounded bend) and
     cannot produce FL Studio's y = x^t power-curve shape (flat-then-sharp-whip). So

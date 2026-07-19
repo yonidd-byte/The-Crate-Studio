@@ -1,6 +1,8 @@
 #include "CrateWorkflowManager.h"
 #include "UI/PluginWindow.h"
 
+#include <set>
+
 namespace
 {
     // Same custom ValueTree property AutomationLaneComponent writes to/reads from.
@@ -48,6 +50,12 @@ CrateWorkflowManager::CrateWorkflowManager()
 
     edit = te::createEmptyEdit (*engine, juce::File());
     edit->getTransport().ensureContextAllocated();
+
+    // Zero-dB Master Default directive: te::createEmptyEdit() leaves the
+    // Master bus at TE's own -3dB headroom default — this DAW wants a new
+    // project's Master to open at absolute unity gain instead.
+    if (auto masterVolume = edit->getMasterVolumePlugin())
+        masterVolume->setVolumeDb (0.0f);
 }
 
 CrateWorkflowManager::~CrateWorkflowManager()
@@ -201,6 +209,77 @@ void CrateWorkflowManager::deleteSelectedTrack()
 
     edit->deleteTrack (currentSelectedTrack);
     currentSelectedTrack = nullptr;
+}
+
+void CrateWorkflowManager::createAndRouteNewFXChannel (te::Track& sourceTrack)
+{
+    // Hybrid Bus/Return Architecture — "+ Create New FX Channel" macro (Sends
+    // "+" menu), now REAL. An "FX Return Track" is not a special TE subclass —
+    // it's a plain te::AudioTrack that happens to host a te::AuxReturnPlugin.
+    // That is the ONE definition used anywhere in this app to recognise one
+    // (see Source/UI/TrackUtils.h's isReturnTrack(), which the Mixer/
+    // Arrangement UI split reads) — created here and nowhere else, so there
+    // is exactly one place a return track's shape can ever drift from.
+    if (edit == nullptr)
+        return;
+
+    jassert (juce::MessageManager::existsAndIsCurrentThread());
+
+    // Step 1: lowest available, unused Aux Bus ID. Duplicated rather than
+    // calling into SendBusUtils::scanBuses() (Source/UI/) — this is
+    // engine-level code and deliberately never includes a UI header (see
+    // anchorMetadataProperty's comment up top for the same rule applied to
+    // prepareAutomationForSave()).
+    std::set<int> busesInUse;
+    for (auto* t : te::getAudioTracks (*edit))
+        for (auto* p : t->pluginList)
+            if (auto* send = dynamic_cast<te::AuxSendPlugin*> (p))
+                busesInUse.insert (send->getBusNumber());
+
+    int busNumber = 1;
+    while (busesInUse.count (busNumber) > 0)
+        ++busNumber;
+
+    // One transaction for the whole macro (new track + both plugins) — a
+    // single Ctrl+Z undoes the entire FX channel, send included, per the
+    // Lead Architect's explicit requirement.
+    edit->getUndoManager().beginNewTransaction ("Create New FX Channel (Bus " + juce::String (busNumber) + ")");
+
+    // Step 2: the new AudioTrack. Docking it visually at the bottom of the
+    // Arrangement/Mixer is the UI split's job (TrackUtils::splitTracks(),
+    // read by MixerComponent/ArrangementComponent) — insertion POSITION in
+    // the Edit's own track list doesn't matter for that, so end-of-tracks is
+    // fine, matching ArrangementComponent::addTrack()'s identical call.
+    auto returnTrack = edit->insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (*edit), nullptr);
+
+    if (returnTrack == nullptr)
+        return;
+
+    // Step 3.
+    returnTrack->setName ("Bus " + juce::String (busNumber) + " FX");
+
+    // Step 4: the RETURN side of the bus, on the new track.
+    if (auto returnPlugin = edit->getPluginCache().createNewPlugin (te::AuxReturnPlugin::xmlTypeName, juce::PluginDescription()))
+    {
+        if (auto* ret = dynamic_cast<te::AuxReturnPlugin*> (returnPlugin.get()))
+            ret->busNumber = busNumber;
+
+        returnTrack->pluginList.insertPlugin (returnPlugin, -1, nullptr);
+    }
+
+    // Step 5: the SEND side of the bus, on the track that asked for this.
+    if (auto sendPlugin = edit->getPluginCache().createNewPlugin (te::AuxSendPlugin::xmlTypeName, juce::PluginDescription()))
+    {
+        if (auto* send = dynamic_cast<te::AuxSendPlugin*> (sendPlugin.get()))
+            send->busNumber = busNumber;
+
+        sourceTrack.pluginList.insertPlugin (sendPlugin, -1, nullptr);
+    }
+
+    // A new track now exists — see onTrackListChanged's own doc comment for
+    // why this is the one place that needs to say so.
+    if (onTrackListChanged)
+        onTrackListChanged();
 }
 
 //==============================================================================

@@ -3,6 +3,8 @@
 #include "AutomationLaneComponent.h"
 #include "ArrangementLayout.h"
 #include "TheCrateLookAndFeel.h"
+#include "CrateColors.h"
+#include "TrackUtils.h"
 
 using namespace CrateArrangement;
 
@@ -15,12 +17,15 @@ namespace
     // so "low opacity" reads as low opacity regardless of the panel colour beneath.
     const auto gridBarColour  = juce::Colours::white.withAlpha (0.14f);
     const auto gridBeatColour = juce::Colours::white.withAlpha (0.045f);
-    const auto playheadColour = juce::Colour (0xffff3b30);
-    const auto waveformColour = juce::Colour (0xff29e0ff); // bright cyan — architectural note:
-                                                            // this is where FL Studio-style
-                                                            // spectral coloring eventually
-                                                            // replaces a flat colour, without
-                                                            // touching the background treatment
+    const auto playheadColour = CrateColors::PlayheadRed;
+    const auto waveformColour = CrateColors::NeonBlue; // Global Color Purge: was an
+                                                        // independent near-cyan literal
+                                                        // (0xff29e0ff), now strictly the
+                                                        // brand accent — architectural note:
+                                                        // this is where FL Studio-style
+                                                        // spectral coloring eventually
+                                                        // replaces a flat colour, without
+                                                        // touching the background treatment
 
     // Only draws the beats that intersect the Graphics context's OWN clip bounds
     // (i.e. whatever's actually dirty/visible right now) — essential now that
@@ -315,7 +320,32 @@ public:
 
     te::AudioTrack* getTrack() const   { return track.get(); }
 
-    int getRowHeight() const           { return automationVisible ? clipLaneHeight + autoLaneHeight : clipLaneHeight; }
+    // In-Track Automation Overlay (V2.0 UI/UX Manifesto section 4, "The
+    // Overlay Method"): automation no longer changes row height — the curve
+    // draws ON TOP of the clip lane (see AutomationLaneComponent, sized to this
+    // row's full bounds). Height is now governed solely by the Cubase/Ableton
+    // FOLD state: collapsedLaneHeight when folded, clipLaneHeight when expanded.
+    int getRowHeight() const           { return collapsed ? collapsedLaneHeight : clipLaneHeight; }
+
+    /** Bridged from the header's fold arrow (a separate Component tree — see
+        TrackHeaderColumn) — folds/unfolds this lane row. Height changes, so this
+        fires onRowHeightChanged so the whole list relayouts and the header
+        column mirrors the new heights. The automation overlay (if visible) and
+        clips re-lay against the new row height, preserving alignment. */
+    void setCollapsed (bool shouldBeCollapsed)
+    {
+        if (collapsed == shouldBeCollapsed)
+            return;
+
+        collapsed = shouldBeCollapsed;
+
+        if (onRowHeightChanged)
+            onRowHeightChanged();
+    }
+
+    // Set by the owning content — fires when THIS row's height changes (fold),
+    // so TrackListContent can relayout the whole stack + re-sync the headers.
+    std::function<void()> onRowHeightChanged;
 
     /** Forces every clip's bounds to be recomputed against the CURRENT zoom
         level, independent of whether this row's own bounds happened to change —
@@ -324,10 +354,13 @@ public:
         (e.g. zooming while the project already fits within the viewport). */
     void refreshLayoutForZoom()   { layoutClips(); }
 
-    /** Bridged from the header column's 'A' toggle (the button now lives in a
-        genuinely separate Component — see TrackHeaderColumn) — shows/hides
-        this row's own automation lane and reports the new height so the
-        header column can mirror it. */
+    /** Shows/hides the automation OVERLAY (curve + dimmed clips) directly over
+        this row. Row height never changes, so this is a pure repaint: no
+        relayout is triggered, and no other row shifts position. Purge Clutter
+        directive removed the header's 'A' toggle that used to call this via
+        TrackHeaderColumn — currently unreachable from any UI control (a future
+        global automation-view toggle or context-menu is meant to call it
+        instead), but left fully intact and working. */
     void setAutomationVisible (bool shouldBeVisible)
     {
         automationVisible = shouldBeVisible;
@@ -335,26 +368,25 @@ public:
         if (automationVisible && autoLane == nullptr && track != nullptr)
         {
             // Default the automation lane to the track's Volume parameter, aligned to
-            // the same grid window as the clip lane above.
+            // the same grid window as the clip lane it now overlays.
             if (auto* vp = track->getVolumePlugin())
             {
                 autoLane = std::make_unique<AutomationLaneComponent> (edit, track, vp->volParam);
                 autoLane->setVisibleLength (totalSeconds);
+                autoLane->setBounds (getLocalBounds());
                 addAndMakeVisible (*autoLane);
             }
         }
 
         if (autoLane != nullptr)
+        {
             autoLane->setVisible (automationVisible);
+            autoLane->toFront (false);
+        }
 
-        resized();
-
-        if (onHeightChanged)
-            onHeightChanged();
+        updateClipDimming();
+        repaint();
     }
-
-    // Set by the owning content.
-    std::function<void()> onHeightChanged;
 
     // Phase 4 MIDI Suite — forwarded straight up to TrackListContent then
     // ArrangementComponent (which owns the edit + workflow to act on them).
@@ -385,12 +417,12 @@ public:
         g.fillRect (0, 0, w, getHeight());
         paintLaneGrid (g, getHeight());
 
-        // Divider between clip lane and automation lane.
-        if (automationVisible)
-        {
-            g.setColour (LAF::background);
-            g.drawHorizontalLine (clipLaneHeight, 0.0f, (float) w);
-        }
+        // In-Track Automation Overlay: no divider to draw any more — there is
+        // only ever one lane now. AutomationLaneComponent (added above, in
+        // z-order, when active) draws the curve directly over the clips this
+        // paint() just filled; updateClipDimming() is what actually makes
+        // the clips underneath read as "background reference" rather than
+        // fighting the curve for attention.
 
         // Row-bottom divider REMOVED from here — TrackListContent::
         // paintOverChildren() now draws ONE clearly-visible line per row,
@@ -402,12 +434,22 @@ public:
     void resized() override
     {
         if (autoLane != nullptr)
-            autoLane->setBounds (0, clipLaneHeight, getWidth(), autoLaneHeight);
+            autoLane->setBounds (getLocalBounds());
 
         layoutClips();
     }
 
 private:
+    // In-Track Automation Overlay: clips render at full opacity normally, but
+    // dim to a faint background reference the instant automation is active —
+    // Component::setAlpha() is a pure compositing property, so this needs no
+    // change to ClipComponent's own paint() logic at all.
+    void updateClipDimming()
+    {
+        for (auto& c : clipComponents)
+            c->setAlpha (automationVisible ? 0.35f : 1.0f);
+    }
+
     void rebuildClips()
     {
         clipComponents.clear();
@@ -421,6 +463,14 @@ private:
                 addAndMakeVisible (*comp);
                 clipComponents.push_back (std::move (comp));
             }
+
+        updateClipDimming();
+
+        // Newly-rebuilt clips are added (and thus z-ordered) AFTER autoLane,
+        // which would otherwise bury the overlay behind them the next time a
+        // clip is added/removed while automation is showing.
+        if (autoLane != nullptr)
+            autoLane->toFront (false);
 
         layoutClips();
     }
@@ -437,7 +487,9 @@ private:
             const auto pos = clip->getPosition();
             const auto x1 = (int) timeToX (pos.time.getStart().inSeconds());
             const auto x2 = (int) timeToX (pos.time.getEnd().inSeconds());
-            c->setBounds (x1, 4, juce::jmax (2, x2 - x1), clipLaneHeight - 8);
+            // Clip height tracks the CURRENT row height (getHeight()), so a folded
+            // row's clips shrink with it instead of overflowing past the row edge.
+            c->setBounds (x1, 4, juce::jmax (2, x2 - x1), juce::jmax (2, getHeight() - 8));
         }
     }
 
@@ -472,6 +524,7 @@ private:
     std::unique_ptr<AutomationLaneComponent> autoLane;
     std::vector<std::unique_ptr<ClipComponent>> clipComponents;
     bool automationVisible = false;
+    bool collapsed = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TrackRow)
 };
@@ -502,20 +555,29 @@ public:
         getTrackOrder()), not just a relayout. */
     std::function<void()> onRebuilt;
 
-    /** Fired at the end of relayout() (which rebuild() also calls) — row
-        HEIGHTS may have changed (automation lane toggled). headerColumn reads
-        getRowHeights() fresh and repositions its existing headers to match —
-        no full rebuild needed for this, just new Y positions. */
+    /** Fired at the end of relayout() (which rebuild() also calls) — the
+        track list's Y positions were recomputed (a track added/removed).
+        Row heights themselves are now always constant (In-Track Automation
+        Overlay replaced the old height-changing "Expandable Lane"), so this
+        no longer fires from an automation toggle — only from an actual row
+        being added/removed. headerColumn reads getRowHeights() fresh and
+        repositions its existing headers to match — no full rebuild needed
+        for this, just new Y positions. */
     std::function<void()> onRelayout;
 
-    void rebuild()
+    // Hybrid Bus/Return Architecture: `tracksToShow` is the REGULAR subset
+    // only (TrackUtils::splitTracks()'s regularTracks) — return tracks are
+    // docked separately (see ArrangementComponent::ReturnLaneDock) and never
+    // appear in this scrollable list. ArrangementComponent::rebuildTracks()
+    // computes the split ONCE and is the only caller.
+    void rebuild (const std::vector<te::AudioTrack*>& tracksToShow)
     {
         rows.clear();
 
-        for (auto* t : te::getAudioTracks (edit))
+        for (auto* t : tracksToShow)
         {
             auto row = std::make_unique<TrackRow> (edit, t);
-            row->onHeightChanged = [this] { relayout(); };
+            row->onRowHeightChanged = [this] { relayout(); }; // fold changes this row's height -> restack + re-sync headers
             row->onClipOpenRequested        = [this] (te::Clip* cl)                    { if (onClipOpenExternally) onClipOpenExternally (cl); };
             row->onEmptyLaneDoubleClicked   = [this] (te::AudioTrack* tr, double secs) { if (onEmptyLaneDoubleClickedExternally) onEmptyLaneDoubleClickedExternally (tr, secs); };
             row->onClipContextMenuRequested = [this] (te::Clip* cl)                    { if (onClipContextMenuExternally) onClipContextMenuExternally (cl); };
@@ -572,7 +634,10 @@ public:
 
     /** Current row heights, in the same order as getTrackOrder() — read by
         TrackHeaderColumn::relayoutFromHeights() to mirror each lane row's
-        actual height (which varies when a track's automation lane is shown). */
+        actual height. Every row is the same constant clipLaneHeight today
+        (see TrackRow::getRowHeight()) — this stays a per-row query rather
+        than a single shared constant in case a future row type genuinely
+        needs a different height again. */
     std::vector<int> getRowHeights() const
     {
         std::vector<int> result;
@@ -584,14 +649,24 @@ public:
         return result;
     }
 
-    /** Bridged from TrackHeaderColumn's 'A' toggle (the button lives there
-        now, a separate Component tree) — finds the row for this track and
-        shows/hides its automation lane. */
+    /** Finds the row for this track and shows/hides its automation overlay.
+        No current UI caller (see TrackRow::setAutomationVisible()'s doc
+        comment) — a future global automation-view toggle or context-menu is
+        meant to call this directly. */
     void setTrackAutomationVisible (te::AudioTrack* track, bool visible)
     {
         for (auto& row : rows)
             if (row->getTrack() == track)
                 row->setAutomationVisible (visible);
+    }
+
+    /** Bridged from TrackHeaderColumn's fold arrow — folds/unfolds the matching
+        lane row (which fires onRowHeightChanged -> relayout -> header re-sync). */
+    void setTrackCollapsed (te::AudioTrack* track, bool collapsed)
+    {
+        for (auto& row : rows)
+            if (row->getTrack() == track)
+                row->setCollapsed (collapsed);
     }
 
     void setMinHeight (int h)   { minHeight = h; }
@@ -755,6 +830,94 @@ private:
 };
 
 //==============================================================================
+// Hybrid Bus/Return Architecture — return tracks (TrackUtils::isReturnTrack())
+// are DOCKED here, directly above MasterHeaderRow's lane slot, and never
+// scroll — same "pinned, never scrolls" contract Master itself already has
+// (see ArrangementComponent::resized()). Deliberately NOT hosted inside a
+// juce::Viewport, unlike TrackListContent — reuses TrackRow as-is (identical
+// clip/automation-overlay rendering), just without TrackListContent's own
+// scroll/playhead/file-drag-drop-hover machinery, none of which a typically
+// tiny, fixed return-track dock needs. File-drop-to-import does not reach
+// these rows (ArrangementComponent::updateDragHover()/processDroppedAudio()
+// only ever query the main `content`) — a disclosed, minor gap, not a
+// requirement of this pass.
+class ArrangementComponent::ReturnLaneDock : public juce::Component
+{
+public:
+    explicit ReturnLaneDock (te::Edit& e) : edit (e) {}
+
+    std::function<void (te::Clip*)> onClipOpenRequested;
+    std::function<void (te::AudioTrack*, double xSeconds)> onEmptyLaneDoubleClicked;
+    std::function<void (te::Clip*)> onClipContextMenuRequested;
+
+    void rebuild (const std::vector<te::AudioTrack*>& returnTracks)
+    {
+        rows.clear();
+
+        for (auto* t : returnTracks)
+        {
+            auto row = std::make_unique<TrackRow> (edit, t);
+            row->onRowHeightChanged = [this] { positionRows(); };
+            row->onClipOpenRequested        = [this] (te::Clip* cl)                    { if (onClipOpenRequested) onClipOpenRequested (cl); };
+            row->onEmptyLaneDoubleClicked   = [this] (te::AudioTrack* tr, double secs) { if (onEmptyLaneDoubleClicked) onEmptyLaneDoubleClicked (tr, secs); };
+            row->onClipContextMenuRequested = [this] (te::Clip* cl)                    { if (onClipContextMenuRequested) onClipContextMenuRequested (cl); };
+
+            addAndMakeVisible (*row);
+            rows.push_back (std::move (row));
+        }
+
+        positionRows();
+    }
+
+    /** Bridged from ReturnHeaderDock's fold arrow (header side) — finds the
+        matching row by track and folds/unfolds it, mirroring
+        TrackListContent::setTrackCollapsed()'s identical job for regular
+        tracks. Firing this changes getTotalHeight(), so the caller
+        (ArrangementComponent) must re-run its own resized() afterward — this
+        class has no scroll offset / viewport to keep in sync, so unlike the
+        regular list there's no relayoutFromHeights() indirection needed here. */
+    void setTrackCollapsed (te::AudioTrack* track, bool collapsed)
+    {
+        for (auto& row : rows)
+            if (row->getTrack() == track)
+                row->setCollapsed (collapsed);
+    }
+
+    /** Total height every current row needs stacked — this IS the dock's
+        height in ArrangementComponent::resized(); ReturnHeaderDock's own
+        getTotalHeight() must always equal this (same tracks, same order). */
+    int getTotalHeight() const
+    {
+        int total = 0;
+
+        for (auto& row : rows)
+            total += row->getRowHeight();
+
+        return total;
+    }
+
+    void resized() override   { positionRows(); }
+
+private:
+    void positionRows()
+    {
+        int y = 0;
+
+        for (auto& row : rows)
+        {
+            const int h = row->getRowHeight();
+            row->setBounds (0, y, getWidth(), h);
+            y += h;
+        }
+    }
+
+    te::Edit& edit;
+    std::vector<std::unique_ptr<TrackRow>> rows;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ReturnLaneDock)
+};
+
+//==============================================================================
 // Corrected Ableton Column Geometry: a genuinely SEPARATE, fixed-width column
 // docked to the right — NOT a header floating inside the grid's own scrolling
 // row (that earlier approach put Master's header at the wrong place entirely,
@@ -780,25 +943,28 @@ public:
     std::function<void (te::AudioTrack*)> onTrackSelected;
     std::function<void (te::AudioTrack*)> onDeleteTrackRequested;
 
-    /** Bridged to TrackListContent::setTrackAutomationVisible() by
-        ArrangementComponent — the 'A' toggle lives HERE now (a separate
-        Component tree from the lane it actually controls). */
-    std::function<void (te::AudioTrack*, bool)> onAutomationToggled;
+    /** Bridged to TrackListContent::setTrackCollapsed() by ArrangementComponent —
+        the fold arrow lives HERE (header side); the height it controls lives on
+        the lane row (content side). */
+    std::function<void (te::AudioTrack*, bool)> onFoldToggled;
 
-    void rebuild()
+    // Hybrid Bus/Return Architecture: `tracksToShow` is the REGULAR subset
+    // only, matching TrackListContent::rebuild()'s own list 1:1 — see
+    // ArrangementComponent::rebuildTracks(), the only caller.
+    void rebuild (const std::vector<te::AudioTrack*>& tracksToShow)
     {
         headers.clear();
         headerTrackIds.clear();
 
-        for (auto* t : te::getAudioTracks (edit))
+        for (auto* t : tracksToShow)
         {
             auto header = std::make_unique<TrackHeaderComponent> (t, workflow);
             header->onSelect = [this, t] { if (onTrackSelected) onTrackSelected (t); };
             header->onDeleteRequested = [this, t] { if (onDeleteTrackRequested) onDeleteTrackRequested (t); };
-            header->onAutomationToggle = [this, t, ptr = header.get()]
+            header->onFoldToggle = [this, t, ptr = header.get()]
             {
-                if (onAutomationToggled)
-                    onAutomationToggled (t, ptr->getAutomationVisible());
+                if (onFoldToggled)
+                    onFoldToggled (t, ptr->getCollapsed());
             };
 
             addAndMakeVisible (*header);
@@ -868,27 +1034,133 @@ private:
 };
 
 //==============================================================================
-// True Master Header Parity (Lead Architect correction — the earlier version
-// was "a lazy mockup"): a 1:1 STRUCTURAL clone of TrackHeaderComponent's own
-// geometry (see TrackHeaderComponent::resized() for the reference row order:
-// name row -> I/O row -> button row -> horizontal volume slider -> meter),
-// same overall width (headerWidth), same row heights/spacing. Differences are
-// deliberate and match what Master ACTUALLY has: no track-number badge, no
-// delete button (Master can't be deleted), no Record Arm/Solo/Automation
-// buttons (none apply to Master), I/O is two DISABLED placeholder ComboBoxes
-// (real per-track I/O isn't wired to the engine yet either — see
-// ChannelStripRack's own identical disclosure — so parity here means "same
-// honest placeholder", not inventing real routing Master doesn't have). Mute
-// is REAL — bound to VolumeAndPanPlugin::muteOrUnmute() on
-// edit.getMasterVolumePlugin() (te::Track::isMuted()/setMute() are no-op
-// stubs MasterTrack never overrides, so the track-level mute path was never
-// usable for Master; the plugin-level one is). Volume AND
+// Hybrid Bus/Return Architecture — the header-side twin of ReturnLaneDock:
+// owns one TrackHeaderComponent per return track, in the EXACT same order
+// ReturnLaneDock's own rows use (both are rebuilt from the SAME
+// TrackUtils::splitTracks().returnTracks vector — see
+// ArrangementComponent::rebuildTracks(), the only place that computes it).
+// Unlike TrackHeaderColumn, this never scrolls (no verticalOffset to track —
+// it isn't shifted by the grid viewport's scroll position at all, it's
+// pinned).
+class ArrangementComponent::ReturnHeaderDock : public juce::Component
+{
+public:
+    ReturnHeaderDock (CrateWorkflowManager& w) : workflow (w) {}
+
+    std::function<void (te::AudioTrack*)> onTrackSelected;
+    std::function<void (te::AudioTrack*)> onDeleteTrackRequested;
+
+    /** Bridged to ReturnLaneDock::setTrackCollapsed() by ArrangementComponent
+        — same header-owns-the-arrow/lane-owns-the-height split
+        TrackHeaderColumn::onFoldToggled already uses for regular tracks. */
+    std::function<void (te::AudioTrack*, bool)> onFoldToggled;
+
+    void rebuild (const std::vector<te::AudioTrack*>& returnTracks)
+    {
+        headers.clear();
+        headerTrackIds.clear();
+
+        for (auto* t : returnTracks)
+        {
+            auto header = std::make_unique<TrackHeaderComponent> (t, workflow);
+            header->onSelect = [this, t] { if (onTrackSelected) onTrackSelected (t); };
+            header->onDeleteRequested = [this, t] { if (onDeleteTrackRequested) onDeleteTrackRequested (t); };
+            header->onFoldToggle = [this, t, ptr = header.get()]
+            {
+                if (onFoldToggled)
+                    onFoldToggled (t, ptr->getCollapsed());
+            };
+
+            addAndMakeVisible (*header);
+            headers.push_back (std::move (header));
+            headerTrackIds.push_back (t != nullptr ? t->itemID : te::EditItemID());
+        }
+
+        updateSelectionHighlight();
+        positionHeaders();
+    }
+
+    /** Re-lays out (does NOT rebuild) — call after a fold toggle changes one
+        header's height, or after ArrangementComponent::resized() gives this
+        dock a fresh width. */
+    void refreshLayout()   { positionHeaders(); }
+
+    /** Total height every current header needs stacked — MUST always equal
+        ReturnLaneDock::getTotalHeight() (same tracks, same order); the two
+        fold states (this header's own isCollapsed vs. the matching TrackRow's
+        collapsed) are two independent booleans kept in sync purely via the
+        onFoldToggled bridge, same proven pattern TrackHeaderColumn/
+        TrackListContent already rely on for regular tracks. */
+    int getTotalHeight() const
+    {
+        int total = 0;
+
+        for (auto& h : headers)
+            total += h->getCollapsed() ? collapsedLaneHeight : clipLaneHeight;
+
+        return total;
+    }
+
+    void setSelectedTrack (te::AudioTrack* t)
+    {
+        selectedTrackId = (t != nullptr) ? t->itemID : te::EditItemID();
+        updateSelectionHighlight();
+    }
+
+    void resized() override   { positionHeaders(); }
+
+private:
+    void updateSelectionHighlight()
+    {
+        for (size_t i = 0; i < headers.size(); ++i)
+            headers[i]->setSelected (selectedTrackId.isValid() && headerTrackIds[i] == selectedTrackId);
+    }
+
+    void positionHeaders()
+    {
+        int y = 0;
+
+        for (auto& h : headers)
+        {
+            const int rowH = h->getCollapsed() ? collapsedLaneHeight : clipLaneHeight;
+            h->setBounds (0, y, getWidth(), rowH);
+            y += rowH;
+        }
+    }
+
+    CrateWorkflowManager& workflow;
+    std::vector<std::unique_ptr<TrackHeaderComponent>> headers;
+    std::vector<te::EditItemID> headerTrackIds; // parallel to `headers`
+    te::EditItemID selectedTrackId;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ReturnHeaderDock)
+};
+
+//==============================================================================
+// Master Arrangement UI Overhaul (Lead Architect directive): stripped down to
+// exactly what Master has — Name (which IS the Mute toggle, same Ableton
+// nameplate paradigm every regular track's MutePlate/name-plate already
+// uses), Volume, Pan, Meter. NO input routing (Master has no input — the old
+// dummy "Ext. In" combo was actively wrong, not just a harmless placeholder),
+// NO dedicated Mute button (the old "M" TextButton — removed entirely, its
+// job absorbed into the name plate), NO Solo/Record/Automation (none ever
+// applied to Master). Mute is REAL — bound to VolumeAndPanPlugin::
+// muteOrUnmute() on edit.getMasterVolumePlugin() (te::Track::isMuted()/
+// setMute() are no-op stubs MasterTrack never overrides, so the track-level
+// mute path was never usable for Master; the plugin-level one is). Volume AND
 // Pan are REAL, bound directly to edit.getMasterVolumePlugin() — the exact
 // same object MasterStrip's own Mixer controls read/write, kept in sync
 // bidirectionally via te::AutomatableParameter::Listener (same pattern
 // TrackHeaderComponent/MixerStrip already use for the identical "two views,
 // one Edit" relationship). Meter reads the same te::LevelMeterPlugin
 // MasterStrip already ensures exists (idempotent find-or-create).
+//
+// Disclosed deviation from MixerStrip's own MasterStrip: THAT class (the
+// Mixer's Master strip) still keeps a separate dedicated Mute button — this
+// class converts to nameplate-mute here specifically, matching the dominant
+// pattern everywhere else in this app (every regular track's MutePlate/name-
+// plate already works this way) rather than the Mixer's own Master strip,
+// which is the one remaining outlier. Not touched in this pass.
 class ArrangementComponent::MasterHeaderRow : public juce::Component,
                                                private juce::Timer,
                                                private te::AutomatableParameter::Listener
@@ -913,42 +1185,15 @@ public:
         if (meterPlugin != nullptr)
             meterPlugin->measurer.addClient (meterClient);
 
+        // The name plate IS the Mute toggle (see mouseDown()) — clicks must
+        // fall through to this component's own mouseDown(), same
+        // setInterceptsMouseClicks(false, false) MixerStrip's identical
+        // trackNameLabel uses.
         addAndMakeVisible (nameLabel);
         nameLabel.setText ("MASTER", juce::dontSendNotification);
-        nameLabel.setColour (juce::Label::textColourId, LAF::text);
+        nameLabel.setJustificationType (juce::Justification::centred);
         nameLabel.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-
-        // Dummy I/O dropdowns — structural parity with TrackHeaderComponent's
-        // own I/O row. Real per-track I/O routing isn't wired to the engine
-        // in THIS app yet either (see ChannelStripRack's identical disclosure),
-        // so these are honestly-disabled placeholders, not fake-functional.
-        inputCombo.addItem ("Ext. In", 1);
-        inputCombo.setSelectedId (1, juce::dontSendNotification);
-        inputCombo.setEnabled (false);
-        addAndMakeVisible (inputCombo);
-
-        outputCombo.addItem ("Stereo Out", 1);
-        outputCombo.setSelectedId (1, juce::dontSendNotification);
-        outputCombo.setEnabled (false);
-        addAndMakeVisible (outputCombo);
-
-        // Real mute, bound to the Master Volume plugin — te::Track::isMuted()
-        // is a no-op stub MasterTrack never overrides, so this does NOT go
-        // through the track mute path at all. Instead it drives
-        // VolumeAndPanPlugin::muteOrUnmute() directly (stashes the current dB
-        // in lastVolumeBeforeMute, drops to -100dB; restores on unmute) — the
-        // exact same object MasterStrip's Mixer strip reads/writes. Query side
-        // of "is it muted" reuses muteOrUnmute()'s own threshold
-        // (getVolumeDb() <= -90.0f, see tracktion_VolumeAndPan.cpp), so the
-        // toggle stays correct even if the volume was dragged to the floor by
-        // some other means. Solo is removed ENTIRELY — Master conceptually
-        // cannot be soloed — matching Ableton's own Master block.
-        muteButton.setButtonText ("M");
-        muteButton.setClickingTogglesState (true);
-        // V2.0 Manifesto section 3: Mute is red app-wide, not the general accent.
-        muteButton.setColour (juce::TextButton::buttonOnColourId, LAF::colorMuteRed);
-        muteButton.setColour (juce::TextButton::buttonColourId, LAF::colorGhostedOff);
-        addAndMakeVisible (muteButton);
+        nameLabel.setInterceptsMouseClicks (false, false);
 
         // REAL Volume + Pan — bound directly to edit.getMasterVolumePlugin(),
         // the same object MasterStrip's own Mixer controls use.
@@ -969,18 +1214,7 @@ public:
         {
             volumeSlider.setValue (volumePlugin->getVolumeDb(), juce::dontSendNotification);
             panKnob.setValue (volumePlugin->getPan(), juce::dontSendNotification);
-            muteButton.setToggleState (volumePlugin->getVolumeDb() <= -90.0f, juce::dontSendNotification);
-
-            muteButton.onClick = [this]
-            {
-                volumePlugin->volParam->getEdit().getUndoManager().beginNewTransaction ("Mute Master");
-                volumePlugin->muteOrUnmute();
-                // muteOrUnmute() changes volParam's value synchronously, which
-                // fires currentValueChanged() below and re-syncs the toggle —
-                // but set it here too so the click feels instant rather than
-                // waiting on the listener round-trip.
-                muteButton.setToggleState (volumePlugin->getVolumeDb() <= -90.0f, juce::dontSendNotification);
-            };
+            applyMuteStateToNameLabel();
 
             volumeSlider.onDragStart = [this]
             {
@@ -1032,12 +1266,28 @@ public:
 
     std::function<void()> onSelected;
 
-    void mouseDown (const juce::MouseEvent&) override
+    void mouseDown (const juce::MouseEvent& e) override
     {
         setSelected (true);
 
         if (onSelected)
             onSelected();
+
+        // The "MASTER" name plate IS the Mute toggle now (Ableton Mute
+        // paradigm — same as every regular track's MutePlate/name-plate,
+        // replacing the dedicated muteButton this row used to have). Guarded
+        // to a single click, same as MixerStrip's identical name-plate-mute
+        // pattern.
+        if (e.getNumberOfClicks() == 1 && nameLabel.getBounds().contains (e.getPosition()) && volumePlugin != nullptr)
+        {
+            volumePlugin->volParam->getEdit().getUndoManager().beginNewTransaction ("Mute Master");
+            volumePlugin->muteOrUnmute();
+            // muteOrUnmute() changes volParam's value synchronously, which
+            // fires currentValueChanged() below and re-syncs the plate — but
+            // do it here too so the click feels instant rather than waiting
+            // on the listener round-trip.
+            applyMuteStateToNameLabel();
+        }
     }
 
     void paint (juce::Graphics& g) override
@@ -1047,13 +1297,13 @@ public:
 
         // True Master Header Container (Lead Architect correction): this is
         // now a LITERAL copy of TrackHeaderComponent::paint()'s container
-        // styling — same exact fill colours (headerDefault/headerSelected,
-        // 0xff252525/0xff3a3a3a — copied verbatim), same left accent stripe
+        // styling — same exact fill colours (CrateColors::LightBackground/
+        // DarkBackground — copied verbatim), same left accent stripe
         // convention. Master is DELIBERATELY never track-coloured (unlike
         // TrackHeaderComponent, which fills with track->getColour()): it is the
-        // permanent visual anchor of the arrangement, locked to a distinct
-        // hardware grey (#1E1E22) and it never opens a colour picker.
-        g.setColour (selected ? juce::Colour (0xff2c2c30) : juce::Colour (0xff1e1e22));
+        // permanent visual anchor of the arrangement, locked to the brand's
+        // dark-void grey and it never opens a colour picker.
+        g.setColour (selected ? CrateColors::LightBackground : CrateColors::DarkBackground);
         g.fillRect (0, 0, w, h);
 
         if (selected)
@@ -1096,41 +1346,58 @@ public:
         // for where those future lanes will begin.
         g.setColour (LAF::background);
         g.drawHorizontalLine (0, 0.0f, (float) w);              // top
-        g.drawHorizontalLine (h - 1, 0.0f, (float) w);          // bottom
         g.drawVerticalLine (w - 1, 0.0f, (float) h);            // right (matches TrackHeaderComponent)
+
+        // "Giant Blob" contrast fix (same as TrackHeaderComponent::paint()):
+        // LAF::background == this row's own unselected fill, so the bottom
+        // line vanished against it when Master wasn't selected. Literal
+        // near-black instead.
+        g.setColour (juce::Colours::black);
+        g.fillRect (0, h - 1, w, 1);                            // bottom
     }
 
     void resized() override
     {
-        // Same outer padding (8, 6) and row order as TrackHeaderComponent's
-        // own resized() — structural parity, not a coincidence.
+        // Master Arrangement UI Overhaul: clean minimal stack — Name, Volume,
+        // Pan, Meter — matching the same proportions Column 3's compact
+        // cluster uses on regular tracks (mutePlate/volH/panSize), not the
+        // old I/O-row/button-row structural clone.
         auto header = getLocalBounds().reduced (8, 6);
 
-        nameLabel.setBounds (header.removeFromTop (16));
-        header.removeFromTop (2);
-
-        auto ioRow = header.removeFromTop (14);
-        inputCombo.setBounds (ioRow.removeFromLeft (ioRow.getWidth() / 2).reduced (1, 0));
-        outputCombo.setBounds (ioRow.reduced (1, 0));
+        nameLabel.setBounds (header.removeFromTop (18));
         header.removeFromTop (3);
 
-        // Button row — Mute only, but kept the SAME 18px row height
-        // TrackHeaderComponent's 4-button row uses, so the rows below still
-        // land at identical Y offsets.
-        auto buttonRow = header.removeFromTop (18);
-        muteButton.setBounds (buttonRow.removeFromLeft (buttonRow.getWidth() / 3));
-        header.removeFromTop (4);
-
-        volumeSlider.setBounds (header.removeFromTop (14));
+        volumeSlider.setBounds (header.removeFromTop (15));
         header.removeFromTop (3);
 
-        panKnob.setBounds (header.removeFromTop (28));
+        panKnob.setBounds (header.removeFromTop (26).withSizeKeepingCentre (26, 26));
         header.removeFromTop (3);
 
-        meterBounds = header.removeFromTop (11).toFloat();
+        meterBounds = header.removeFromTop (10).toFloat();
     }
 
 private:
+    // Mirrors MixerStrip::applyTrackColourToPlate()'s mute-state colour swap
+    // — Master has no track colour, so "unmuted" falls back to LightBackground
+    // (a neutral plate, not the brand accent) rather than a track's own hue.
+    void applyMuteStateToNameLabel()
+    {
+        const bool isMuted = volumePlugin != nullptr && volumePlugin->getVolumeDb() <= -90.0f;
+
+        if (isMuted)
+        {
+            nameLabel.setColour (juce::Label::backgroundColourId, CrateColors::DarkBackground);
+            nameLabel.setColour (juce::Label::textColourId, CrateColors::BrandGray);
+        }
+        else
+        {
+            nameLabel.setColour (juce::Label::backgroundColourId, CrateColors::LightBackground);
+            nameLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+        }
+
+        nameLabel.repaint();
+    }
+
     void currentValueChanged (te::AutomatableParameter&) override
     {
         if (volumePlugin == nullptr)
@@ -1138,7 +1405,7 @@ private:
 
         volumeSlider.setValue (volumePlugin->getVolumeDb(), juce::dontSendNotification);
         panKnob.setValue (volumePlugin->getPan(), juce::dontSendNotification);
-        muteButton.setToggleState (volumePlugin->getVolumeDb() <= -90.0f, juce::dontSendNotification);
+        applyMuteStateToNameLabel();
     }
 
     void curveHasChanged (te::AutomatableParameter&) override {}
@@ -1160,9 +1427,7 @@ private:
     te::LevelMeasurer::Client meterClient;
     float meterLevelDb = -60.0f; // -INF floor — real level once timerCallback() starts polling
 
-    juce::Label nameLabel;
-    juce::ComboBox inputCombo, outputCombo; // dummy I/O — structural parity only, see class doc comment
-    juce::TextButton muteButton;
+    juce::Label nameLabel; // also the Mute toggle — see mouseDown()/applyMuteStateToNameLabel()
     juce::Slider volumeSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::Slider panKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox };
     juce::Rectangle<float> meterBounds; // computed in resized(), read by paint()
@@ -1190,13 +1455,22 @@ ArrangementComponent::ArrangementComponent (te::Edit& editToShow, CrateWorkflowM
     content->onEmptyLaneDoubleClickedExternally = [this] (te::AudioTrack* t, double secs) { createAndOpenMidiClipAt (t, secs); };
     content->onClipContextMenuExternally = [this] (te::Clip* c) { showClipContextMenu (c); };
 
+    // Hybrid Bus/Return Architecture — the docked return-track lane, same
+    // clip/context-menu routing as `content` above, just for the separate
+    // non-scrolling track list.
+    returnLaneDock = std::make_unique<ReturnLaneDock> (edit);
+    returnLaneDock->onClipOpenRequested = [this] (te::Clip* c) { openClip (c); };
+    returnLaneDock->onEmptyLaneDoubleClicked = [this] (te::AudioTrack* t, double secs) { createAndOpenMidiClipAt (t, secs); };
+    returnLaneDock->onClipContextMenuRequested = [this] (te::Clip* c) { showClipContextMenu (c); };
+    addAndMakeVisible (*returnLaneDock);
+
     // Corrected Column Geometry: whenever the lane side's row list or row
     // heights change, the header column re-syncs from it — see
     // TrackHeaderColumn's own doc comment for why it reads FROM content
     // rather than tracking its own independent state.
     content->onRebuilt = [this]
     {
-        headerColumn->rebuild();
+        headerColumn->rebuild (content->getTrackOrder());
         headerColumn->relayoutFromHeights (content->getRowHeights());
     };
     content->onRelayout = [this] { headerColumn->relayoutFromHeights (content->getRowHeights()); };
@@ -1235,6 +1509,7 @@ ArrangementComponent::ArrangementComponent (te::Edit& editToShow, CrateWorkflowM
     {
         content->setSelectedTrack (t);
         headerColumn->setSelectedTrack (t);
+        returnHeaderDock->setSelectedTrack (nullptr);
         masterHeader->setSelected (false);
         if (onTrackSelected) onTrackSelected (t);
     };
@@ -1242,11 +1517,46 @@ ArrangementComponent::ArrangementComponent (te::Edit& editToShow, CrateWorkflowM
     {
         if (onDeleteTrackRequested) onDeleteTrackRequested (t);
     };
-    headerColumn->onAutomationToggled = [this] (te::AudioTrack* t, bool visible)
+    // Purge Clutter directive: the header's 'A' toggle is gone (no UI trigger
+    // for the automation overlay right now — see TrackHeaderComponent.h's doc
+    // comment), so there is nothing left to bridge here. TrackListContent::
+    // setTrackAutomationVisible() and the whole overlay-rendering path are
+    // untouched and still fully functional — just unreachable from any control
+    // until a global automation-view toggle or context-menu replaces this.
+    headerColumn->onFoldToggled = [this] (te::AudioTrack* t, bool collapsed)
     {
-        content->setTrackAutomationVisible (t, visible);
+        content->setTrackCollapsed (t, collapsed);
     };
     addAndMakeVisible (*headerColumn);
+
+    // Hybrid Bus/Return Architecture — the docked return-track header list,
+    // wired the same way headerColumn is above, cross-clearing every OTHER
+    // selection surface (regular headers, Master) so exactly one thing is
+    // ever selected at a time regardless of which dock it lives in.
+    returnHeaderDock = std::make_unique<ReturnHeaderDock> (workflow);
+    returnHeaderDock->onTrackSelected = [this] (te::AudioTrack* t)
+    {
+        content->setSelectedTrack (t);
+        headerColumn->setSelectedTrack (nullptr);
+        returnHeaderDock->setSelectedTrack (t);
+        masterHeader->setSelected (false);
+        if (onTrackSelected) onTrackSelected (t);
+    };
+    returnHeaderDock->onDeleteTrackRequested = [this] (te::AudioTrack* t)
+    {
+        if (onDeleteTrackRequested) onDeleteTrackRequested (t);
+    };
+    // Unlike headerColumn's identical bridge, a return-dock fold ALSO changes
+    // this whole column's total height (it isn't inside a scrolling
+    // viewport, so nothing else absorbs the size change) — re-running the
+    // top-level resized() is what gives Master/headerColumn/viewport their
+    // correct remaining space afterward.
+    returnHeaderDock->onFoldToggled = [this] (te::AudioTrack* t, bool collapsed)
+    {
+        returnLaneDock->setTrackCollapsed (t, collapsed);
+        resized();
+    };
+    addAndMakeVisible (*returnHeaderDock);
 
     // Master — the left-side MasterLaneRow is GONE entirely (Lead Architect
     // correction: it was a dead ghost container blocking the grid). Only
@@ -1259,6 +1569,7 @@ ArrangementComponent::ArrangementComponent (te::Edit& editToShow, CrateWorkflowM
     {
         content->setSelectedTrack (nullptr);
         headerColumn->setSelectedTrack (nullptr);
+        returnHeaderDock->setSelectedTrack (nullptr);
         if (onMasterTrackSelected) onMasterTrackSelected();
     };
 
@@ -1311,8 +1622,19 @@ void ArrangementComponent::addTrack (bool asMidiTrack)
 
 void ArrangementComponent::rebuildTracks()
 {
-    content->rebuild();
+    // Hybrid Bus/Return Architecture — split ONCE, hand the SAME two vectors
+    // to both the regular pair (content/headerColumn, via getTrackOrder()) and
+    // the return pair below, so a track can never end up in both lists or
+    // neither regardless of what TrackUtils::isReturnTrack() returns for it
+    // at this exact moment.
+    const auto split = TrackUtils::splitTracks (edit);
+
+    content->rebuild (split.regularTracks); // fires onRebuilt -> headerColumn->rebuild (content->getTrackOrder())
+    returnLaneDock->rebuild (split.returnTracks);
+    returnHeaderDock->rebuild (split.returnTracks);
+
     layoutContent();
+    resized(); // the return dock's total height may have just changed (track added/removed)
 
     if (onTracksChanged)
         onTracksChanged();
@@ -1652,7 +1974,7 @@ void ArrangementComponent::paint (juce::Graphics& g)
     // dock rather than two coincidentally-adjacent components. A 1px left
     // border separates the whole dock from the timeline.
     const auto rightColumnX = getWidth() - headerWidth;
-    g.setColour (juce::Colour (0xff17171a)); // darker than LAF::panel — a visually distinct dock
+    g.setColour (CrateColors::DarkBackground); // darker than LAF::panel — a visually distinct dock
     g.fillRect (rightColumnX, 0, headerWidth, getHeight());
 
     g.setColour (LAF::background);
@@ -1662,18 +1984,20 @@ void ArrangementComponent::paint (juce::Graphics& g)
 void ArrangementComponent::paintOverChildren (juce::Graphics& g)
 {
     // Master Separator: a strict horizontal line across the ENTIRE grid,
-    // aligned with the top of the pinned MasterHeaderRow (getHeight() -
-    // clipLaneHeight is exactly masterHeader's own top edge — see resized()'s
-    // headersBounds.removeFromBottom(clipLaneHeight)). MUST be drawn in
-    // paintOverChildren(), not paint(): viewport (the scrolling grid) is a
-    // CHILD component that fully covers this exact row with its own opaque
-    // background fill, so a line drawn in paint() — which runs BEFORE
-    // children — was being silently painted over and never actually visible.
-    // Full window width, not just the grid: forcing it straight through the
-    // header dock column too is what makes it read as one continuous
-    // boundary rather than a line that mysteriously stops partway across.
+    // aligned with the top of the pinned bottom section — MasterHeaderRow,
+    // plus (Hybrid Bus/Return Architecture) the return-track dock now sitting
+    // directly above it, both non-scrolling (see resized()'s
+    // headersBounds.removeFromBottom() chain: Master first, then the return
+    // dock on top of that). MUST be drawn in paintOverChildren(), not
+    // paint(): viewport (the scrolling grid) is a CHILD component that fully
+    // covers this exact row with its own opaque background fill, so a line
+    // drawn in paint() — which runs BEFORE children — was being silently
+    // painted over and never actually visible. Full window width, not just
+    // the grid: forcing it straight through the header dock column too is
+    // what makes it read as one continuous boundary rather than a line that
+    // mysteriously stops partway across.
     g.setColour (juce::Colours::darkgrey);
-    const auto lineY = (float) (getHeight() - clipLaneHeight);
+    const auto lineY = (float) (getHeight() - clipLaneHeight - returnLaneDock->getTotalHeight());
     g.drawLine (0.0f, lineY, (float) getWidth(), lineY, 1.0f);
 }
 
@@ -1704,12 +2028,24 @@ void ArrangementComponent::resized()
 
     // Master pinned to the bottom of the RIGHT column only — the left-side
     // MasterLaneRow is GONE entirely (Lead Architect correction: it was a
-    // dead ghost container). gridBounds is deliberately NOT touched here —
-    // the grid extends all the way to the absolute bottom of its own column,
-    // touching the top boundary of deviceChain with zero gap.
+    // dead ghost container).
     masterHeader->setBounds (headersBounds.removeFromBottom (clipLaneHeight));
 
-    // The rest of each column.
+    // Hybrid Bus/Return Architecture — return tracks dock directly ABOVE
+    // Master, on BOTH sides (header dock above masterHeader; lane dock above
+    // where the grid would otherwise end), never scrolling. Zero height (and
+    // therefore invisible, consuming no space) when there are no return
+    // tracks. returnHeaderDock/returnLaneDock always report the SAME total
+    // height (same tracks, same order — see rebuildTracks()), so either one
+    // is a valid source for the shared height; returnLaneDock is used here
+    // since gridBounds needs it too.
+    const int returnDockHeight = returnLaneDock->getTotalHeight();
+    returnHeaderDock->setBounds (headersBounds.removeFromBottom (returnDockHeight));
+    returnLaneDock->setBounds (gridBounds.removeFromBottom (returnDockHeight));
+
+    // The rest of each column. gridBounds now correctly stops at the top of
+    // the return dock (or Master, if there are no return tracks) instead of
+    // extending all the way to the absolute bottom.
     headerColumn->setBounds (headersBounds);
     viewport.setBounds (gridBounds);
 

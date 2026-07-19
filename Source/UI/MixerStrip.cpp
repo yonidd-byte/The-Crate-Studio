@@ -1,6 +1,7 @@
 #include "MixerStrip.h"
 #include "TheCrateLookAndFeel.h"
 #include "CrateColors.h"
+#include "CrateDesignSystem.h"
 #include "PluginSlotComponent.h"
 #include "CrateSendSlot.h"
 #include "CrateEQThumbnail.h"
@@ -9,6 +10,7 @@
 #include "TrackColourEditor.h"
 #include "AddIconButton.h"
 #include "SendBusUtils.h"
+#include "TrackUtils.h"
 
 #include <map>
 #include <set>
@@ -54,11 +56,15 @@ namespace
 
     // Role colours — Lead Architect's "Ghost Buttons" spec: matte, desaturated
     // console colours for the R/S/I triad (Mute has no button anymore — the
-    // name plate is the Mute toggle, see applyTrackColourToPlate()). These are
-    // semantic STATUS colours (armed/soloed), deliberately outside the strict
-    // 4-colour hierarchy — see CrateColors.h's own doc comment.
-    const auto soloOnColour   = juce::Colour (0xffb8860b); // matte yellow (dark goldenrod)
-    const auto recordOnColour = juce::Colour (0xffdc143c); // matte red (crimson)
+    // name plate is the Mute toggle, see applyTrackColourToPlate()). Global
+    // Color Centralization & Purge directive: these now read from
+    // CrateColors' own centralized status colours instead of independent
+    // local literals, so Solo/Record render identically here and in
+    // TrackHeaderComponent (previously this file used its own dark-goldenrod
+    // Solo shade, visibly different from the Arrangement header's bright
+    // yellow — that split is gone now).
+    const auto soloOnColour   = CrateColors::SoloYellow;
+    const auto recordOnColour = CrateColors::RecordCrimson;
     const auto sectionCaption = CrateColors::BrandGray;
 
     // Cubase-style pan readout — "C" dead centre, otherwise the percentage
@@ -73,31 +79,40 @@ namespace
                            : (juce::String (percent) + " R >");
     }
 
-    constexpr float meterFloorDb = -60.0f;
-    constexpr float meterRangeDb = 66.0f; // floor to +6 dB headroom
+    // Design System Centralization: thin aliases into
+    // CrateDesignSystem::Metrics::ChannelStrip — the SAME values MasterStrip
+    // reads (see that file's own identical alias block and
+    // CrateDesignSystem.h's doc comment on why the two are deliberately
+    // unified, not independently duplicated — this is what keeps the two
+    // strips' fader rails from drifting out of alignment again).
+    namespace DS = CrateDesignSystem::Metrics::ChannelStrip;
+    namespace DSMixer = CrateDesignSystem::Metrics::Mixer;
 
-    constexpr int meterColumnWidth   = 22;
-    constexpr int grMeterColumnWidth = 8;
+    constexpr float meterFloorDb = DS::meterFloorDb;
+    constexpr float meterRangeDb = DS::meterRangeDb; // floor to +6 dB headroom
+
+    constexpr int meterColumnWidth   = DS::meterColumnWidth;
+    constexpr int grMeterColumnWidth = DSMixer::grMeterColumnWidth;
 
     // ---- Strict bottom-up level heights (see MixerStrip.h's anatomy diagram) --
-    constexpr int levelGap   = 4;
-    constexpr int nameH      = 20; // L1  track-name plate — IS the Mute toggle now (Ableton Mute paradigm)
-    constexpr int tripletH   = 22; // R/S/I triad row, directly above the name plate
-    constexpr int dbReadoutH = 16; // L5  dB readout boxes
-    constexpr int panH       = 42; // L6  pan knob — extracted, sits below the Routing well now
-    constexpr int faderMinH  = 130; // L4 fader block minimum (it stretches past this)
+    constexpr int levelGap   = DS::levelGap;
+    constexpr int nameH      = DS::nameH; // L1  track-name plate — IS the Mute toggle now (Ableton Mute paradigm)
+    constexpr int tripletH   = DS::tripletH; // R/S/I triad row, directly above the name plate
+    constexpr int dbReadoutH = DS::dbReadoutH; // L5  dB readout boxes
+    constexpr int panH       = DS::panH; // L6  pan knob — extracted, sits below the Routing well now
+    constexpr int faderMinH  = DSMixer::faderMinH; // L4 fader block minimum (it stretches past this)
 
     // Scribble Strip (L1) — embedded icon (no plate/border, drawn straight
     // onto the dark void background) at the absolute bottom, track name
     // (Mute toggle) directly above it. The old dedicated M button and 4px
     // colour strip are GONE — the name plate's own fill IS the colour cue now
     // (see applyTrackColourToPlate()).
-    constexpr int scribbleIconH  = 22;
-    constexpr int scribbleGap    = 2;
+    constexpr int scribbleIconH  = DS::scribbleIconH;
+    constexpr int scribbleGap    = DS::scribbleGap;
 
     // Pan value readout, directly below the (now-extracted) Pan knob.
-    constexpr int panValueH   = 12;
-    constexpr int panValueGap = 2;
+    constexpr int panValueH   = DS::panValueH;
+    constexpr int panValueGap = DS::panValueGap;
 
     // ---- Deep stack (L9–L14), only laid out when the rack is expanded ---------
     // L9 Routing is now DYNAMIC height (RoutingBlock::getPreferredHeight()) —
@@ -109,15 +124,15 @@ namespace
     // shares ONE row height across every strip (see its own doc comment), so
     // a per-track-dynamic well height here would need that architecture to
     // change too, once real track-group data exists.
-    constexpr int routingRowH   = 22;
-    constexpr int routingRowGap = 2;
-    constexpr int sendsH    = 62; // L10 sends
+    constexpr int routingRowH   = DS::routingRowH;
+    constexpr int routingRowGap = DSMixer::routingRowGap;
+    constexpr int sendsH    = DSMixer::sendsH; // L10 sends
     // L11 inserts height == InsertsRackComponent::getFixedHeight()
-    constexpr int compH     = 24; // L12 channel comp block — a neat single-slot-height rect (it only opens a popup)
-    constexpr int eqH       = 60; // L13 EQ display
-    constexpr int settingsH = 22; // L14 settings button
+    constexpr int compH     = DS::compH; // L12 channel comp block — a neat single-slot-height rect (it only opens a popup)
+    constexpr int eqH       = DS::eqH; // L13 EQ display
+    constexpr int settingsH = DS::settingsH; // L14 settings button
 
-    constexpr int outerMargin = 4; // strict 4px margin — name plate / R-S-I triad / fader / pan / icon family only
+    constexpr int outerMargin = DS::outerMargin; // strict 4px margin — name plate / R-S-I triad / fader / pan / icon family only
 
     // "Universal Rack Width" (Absolute Symmetry directive) — ONE constant
     // positions EVERY dark rack container: Comp, Inserts well, Sends well,
@@ -132,14 +147,14 @@ namespace
     // Bus 1 rows sit rackButtonPadding further in again inside Sends
     // specifically (scrollbar clearance) — an internal detail, not a
     // different CONTAINER margin, so it doesn't violate the rule above.
-    constexpr int rackMargin        = 6;
-    constexpr int rackButtonPadding = 4;
+    constexpr int rackMargin        = DSMixer::rackMargin;
+    constexpr int rackButtonPadding = DSMixer::rackButtonPadding;
 
     // Strict breathing room between the SENDS block and the Routing block —
     // bigger than the ordinary levelGap so the two dark wells visibly never
     // touch (both wells wrap their component snugly, zero extra vertical
     // padding, so this IS the exact gap that ends up on screen between them).
-    constexpr int sendsToRoutingGap = 8;
+    constexpr int sendsToRoutingGap = DSMixer::sendsToRoutingGap;
 
     const juce::String pluginDragPrefix = "plugin_drag|";
 
@@ -191,7 +206,7 @@ struct MixerStrip::RoutingBlock : public juce::Component
         groupSlot.setJustificationType (juce::Justification::centred);
         groupSlot.setColour (juce::Label::textColourId, HardwareSlotLookAndFeel::dimTextColour);
         groupSlot.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-        groupSlot.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        groupSlot.setFont (juce::FontOptions (CrateDesignSystem::Typography::groupSlotFontSize, juce::Font::bold));
         groupSlot.setVisible (false);
     }
 
@@ -263,8 +278,8 @@ struct MixerStrip::SendsSection : public juce::Component
             auto b = getLocalBounds();
             for (int i = 0; i < getNumChildComponents(); ++i)
             {
-                getChildComponent (i)->setBounds (b.removeFromTop (22)); // matches the hardware-chip family's row height elsewhere
-                b.removeFromTop (2);
+                getChildComponent (i)->setBounds (b.removeFromTop (DSMixer::sendRowH)); // matches the hardware-chip family's row height elsewhere
+                b.removeFromTop (DSMixer::sendRowGap);
             }
         }
     };
@@ -273,7 +288,7 @@ struct MixerStrip::SendsSection : public juce::Component
     {
         addAndMakeVisible (caption);
         caption.setText ("SENDS", juce::dontSendNotification);
-        caption.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+        caption.setFont (juce::FontOptions (CrateDesignSystem::Typography::sendsCaptionFontSize, juce::Font::bold));
         caption.setColour (juce::Label::textColourId, sectionCaption);
 
         // "+" add-send affordance — MixerStrip's Sends had NO way to CREATE a
@@ -284,7 +299,7 @@ struct MixerStrip::SendsSection : public juce::Component
 
         viewport.setViewedComponent (&content, false);
         viewport.setScrollBarsShown (true, false); // vertical ONLY — the horizontal scrollbar path is fully disabled
-        viewport.setScrollBarThickness (8); // slim gutter; drawScrollbar only paints a 4px thumb centred inside it
+        viewport.setScrollBarThickness (DSMixer::sendsScrollbarThickness); // slim gutter; drawScrollbar only paints a 4px thumb centred inside it
         // Bug fix: ScrollOnDragMode::all meant dragging a Send knob (rather
         // than empty space) also kicked off the Viewport's own drag-to-scroll,
         // fighting the knob for the same gesture. The custom auto-hide
@@ -317,15 +332,15 @@ struct MixerStrip::SendsSection : public juce::Component
         // shared rackMargin+rackButtonPadding left edge, so that inset is
         // applied HERE, on the left only — the right edge stays untouched.
         auto b = getLocalBounds();
-        auto captionRow = b.removeFromTop (12).withTrimmedLeft (rackButtonPadding);
-        addSendButton.setBounds (captionRow.removeFromRight (12).reduced (1));
+        auto captionRow = b.removeFromTop (DSMixer::sendsCaptionH).withTrimmedLeft (rackButtonPadding);
+        addSendButton.setBounds (captionRow.removeFromRight (DSMixer::sendsCaptionH).reduced (1));
         caption.setBounds (captionRow);
-        b.removeFromTop (2);
+        b.removeFromTop (DSMixer::sendsCaptionBottomGap);
         b = b.withTrimmedLeft (rackButtonPadding);
 
         viewport.setBounds (b);
 
-        constexpr int rowH = 24; // 22 + 2 gap
+        constexpr int rowH = DSMixer::sendRowH + DSMixer::sendRowGap;
         const int contentH = juce::jmax (b.getHeight(), numSendRows() * rowH);
 
         // Axis lock (the "jelly" bug): content width is set to the viewport's
@@ -347,7 +362,7 @@ struct MixerStrip::SendsSection : public juce::Component
             return;
 
         g.setColour (LAF::colorTextSecondary);
-        g.setFont (juce::FontOptions (9.5f));
+        g.setFont (juce::FontOptions (CrateDesignSystem::Typography::sendsEmptyCaptionFontSize));
         g.drawText ("(none)", getLocalBounds().reduced (4).withTop (14).withHeight (14),
                      juce::Justification::centredLeft);
     }
@@ -362,6 +377,8 @@ struct MixerStrip::SendsSection : public juce::Component
 MixerStrip::MixerStrip (te::AudioTrack::Ptr trackToControl, CrateWorkflowManager& workflowToUse)
     : workflow (workflowToUse), track (trackToControl)
 {
+    isReturnTrackFlag = track != nullptr && TrackUtils::isReturnTrack (*track);
+
     if (track != nullptr)
     {
         // addDefaultTrackPlugins() (called when the track was created) already put a
@@ -387,7 +404,7 @@ MixerStrip::MixerStrip (te::AudioTrack::Ptr trackToControl, CrateWorkflowManager
     trackNameLabel.setJustificationType (juce::Justification::centred);
     trackNameLabel.setColour (juce::Label::textColourId, LAF::colorTextPrimary);
     trackNameLabel.setColour (juce::Label::outlineColourId, LAF::colorFaderGroove);
-    trackNameLabel.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+    trackNameLabel.setFont (juce::FontOptions (CrateDesignSystem::Typography::stripNameFontSize, juce::Font::bold));
     // Clicks pass THROUGH to MixerStrip so mouseDown/mouseDoubleClick can open
     // the rename+colour editor over the plate (a plain Label has no double/right
     // click hooks of its own).
@@ -422,13 +439,36 @@ MixerStrip::MixerStrip (te::AudioTrack::Ptr trackToControl, CrateWorkflowManager
     recordButton.setLookAndFeel (&ghostButtonLookAndFeel);
     recordButton.setClickingTogglesState (true);
     recordButton.setColour (juce::TextButton::buttonOnColourId, recordOnColour);
-    recordButton.setTooltip ("Record enable - not wired to the engine yet (display only).");
 
+    if (isReturnTrackFlag)
+    {
+        // Return Track Button directive (Mixer parity with the Arrangement):
+        // return tracks don't record — this slot becomes the same cosmetic
+        // Pre/Post toggle TrackHeaderComponent's recordArmButton uses. POST
+        // is the default, matching real-console convention.
+        recordButton.setButtonText ("POST");
+        recordButton.setToggleState (true, juce::dontSendNotification);
+        recordButton.setTooltip ("Pre/Post fader tap point - not wired to the engine yet (display only).");
+        recordButton.onClick = [this]
+        {
+            const bool isPost = recordButton.getToggleState();
+            recordButton.setButtonText (isPost ? "POST" : "PRE");
+        };
+    }
+    else
+    {
+        recordButton.setTooltip ("Record enable - not wired to the engine yet (display only).");
+    }
+
+    // Return tracks have no external input at all — the 'I' slot is hidden
+    // completely, not just relabelled (see resized()'s R/S/I row for how the
+    // remaining two buttons then split the freed width).
     addAndMakeVisible (inputMonitorButton);
     inputMonitorButton.setLookAndFeel (&ghostButtonLookAndFeel);
     inputMonitorButton.setClickingTogglesState (true);
     inputMonitorButton.setColour (juce::TextButton::buttonOnColourId, LAF::colorNeonCyan);
     inputMonitorButton.setTooltip ("Input monitor - not wired to the engine yet (display only).");
+    inputMonitorButton.setVisible (! isReturnTrackFlag);
 
     // ---- L4: Sexy fader (CrateMixerLookAndFeel) -------------------------------
     addAndMakeVisible (volumeFader);
@@ -442,7 +482,7 @@ MixerStrip::MixerStrip (te::AudioTrack::Ptr trackToControl, CrateWorkflowManager
         l.setJustificationType (juce::Justification::centred);
         l.setColour (juce::Label::textColourId, LAF::lcdText);
         l.setColour (juce::Label::backgroundColourId, LAF::lcdBackground);
-        l.setFont (juce::FontOptions (9.5f));
+        l.setFont (juce::FontOptions (CrateDesignSystem::Typography::dbReadoutFontSize));
     };
     addAndMakeVisible (faderPositionLabel);
     styleReadout (faderPositionLabel);
@@ -464,7 +504,7 @@ MixerStrip::MixerStrip (te::AudioTrack::Ptr trackToControl, CrateWorkflowManager
     addAndMakeVisible (panValueLabel);
     panValueLabel.setJustificationType (juce::Justification::centred);
     panValueLabel.setColour (juce::Label::textColourId, CrateColors::NeonBlue); // "Pan readouts" — explicitly NeonBlue per the palette directive
-    panValueLabel.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+    panValueLabel.setFont (juce::FontOptions (CrateDesignSystem::Typography::panValueFontSize, juce::Font::bold));
     panValueLabel.setText ("C", juce::dontSendNotification);
 
     // ---- L9: Routing (Output slot + Group slot) -------------------------------
@@ -689,7 +729,7 @@ void MixerStrip::applyTrackColourToPlate()
     // colour set yet (te::Track's default is a transparent Colour()).
     trackAccentColour = (track != nullptr && ! track->getColour().isTransparent())
                             ? track->getColour()
-                            : juce::Colour (0xff30506a);
+                            : juce::Colour (CrateDesignSystem::Colors::mixerStripDefaultAccent);
 
     const bool isMuted = track != nullptr && track->isMuted (false);
 
@@ -854,9 +894,10 @@ void MixerStrip::rebuildSends()
 // Dynamic Sends Routing directive, ported from CrateTrackInspectorComponent's
 // own addNewSend()/createSendToBus() — MixerStrip's Sends had no way to
 // CREATE a new send at all before this; see AddIconButton's own wiring in
-// SendsSection's constructor. Strict Sends Menu Logic: if zero buses exist
-// anywhere in the project yet, only "Create New Bus..." is offered — never a
-// fabricated "Add Send to Bus 1" for a bus that doesn't actually exist.
+// SendsSection's constructor. Menu contents now come from SendBusUtils::
+// buildSendMenu() (Hybrid Bus/Return Architecture directive) — one source of
+// truth for the label formatting/separator/macro-item layout, shared with
+// InspectorStrip's identical menu.
 void MixerStrip::addNewSend()
 {
     if (track == nullptr)
@@ -864,59 +905,51 @@ void MixerStrip::addNewSend()
 
     auto& edit = track->edit;
     const auto scan = SendBusUtils::scanBuses (edit, track.get());
-    const auto& busesInUseAnywhere = scan.busesInUseAnywhere;
-    const auto& busesThisTrackAlreadyUses = scan.busesThisTrackAlreadyUses;
-
-    // UX Fix (Grey-out, not hide): EVERY bus that exists anywhere in the
-    // project is listed, so the user gets visual confirmation the routing
-    // graph is intact — a bus this track already sends to just shows
-    // disabled (greyed-out, unclickable) instead of silently disappearing,
-    // which used to read as "the system lost track of it."
-    juce::PopupMenu menu;
-    std::map<int, int> menuIdToBusNumber;
-    int nextItemId = 1;
-
-    for (int bus : busesInUseAnywhere)
-    {
-        const bool alreadyRouted = busesThisTrackAlreadyUses.count (bus) > 0;
-        const juce::String label = alreadyRouted ? ("Bus " + juce::String (bus) + " (Already Sending)")
-                                                  : ("Add Send to Bus " + juce::String (bus));
-
-        menu.addItem (nextItemId, label, ! alreadyRouted);
-        menuIdToBusNumber[nextItemId] = bus;
-        ++nextItemId;
-    }
-
-    if (! menuIdToBusNumber.empty())
-        menu.addSeparator();
-
-    const int createNewBusItemId = nextItemId;
-    menu.addItem (createNewBusItemId, "Create New Bus...");
+    auto menuBuild = SendBusUtils::buildSendMenu (edit, scan);
+    auto& menu = menuBuild.menu;
+    auto& menuIdToBusNumber = menuBuild.menuIdToBusNumber;
+    const int createFXChannelItemId = menuBuild.createFXChannelItemId;
 
     juce::Component::SafePointer<MixerStrip> safeThis (this);
     te::AudioTrack::Ptr trackAtMenuOpenTime = track;
+    CrateWorkflowManager* workflowPtr = &workflow; // long-lived (owned by MainComponent) — safe to outlive this strip
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (sendsSection->addSendButton),
-        [safeThis, trackAtMenuOpenTime, menuIdToBusNumber, createNewBusItemId, busesInUseAnywhere] (int result)
+        [safeThis, trackAtMenuOpenTime, menuIdToBusNumber, createFXChannelItemId, workflowPtr] (int result)
         {
             if (result == 0 || safeThis == nullptr || safeThis->track != trackAtMenuOpenTime)
                 return; // dismissed, or the strip's track moved on before the choice was made
 
-            int busNumber = -1;
-
-            if (result == createNewBusItemId)
+            if (result == createFXChannelItemId)
             {
-                busNumber = 1;
-                while (busesInUseAnywhere.count (busNumber) > 0)
-                    ++busNumber;
-            }
-            else if (auto it = menuIdToBusNumber.find (result); it != menuIdToBusNumber.end())
-            {
-                busNumber = it->second;
+                // Use-After-Free fix: createAndRouteNewFXChannel() creates a new
+                // track, which fires CrateWorkflowManager::onTrackListChanged ->
+                // MixerComponent::rebuildStrips() -> destroys every live
+                // MixerStrip, INCLUDING this one — the strip whose own Send-menu
+                // callback is still executing right now, on this very call
+                // stack (PopupMenu::showMenuAsync invokes its result callback
+                // from JUCE's internal async-menu machinery, which is still
+                // "above" us here). Calling it directly would delete `this`
+                // (and this lambda's captured `safeThis`) mid-callback, then
+                // crash the instant control returned here and touched
+                // `safeThis` again (the old code's trailing rebuildSends() call
+                // did exactly that). Deferred via callAsync so the destructive
+                // rebuild runs on a fresh message-loop iteration, fully outside
+                // this callback's (and the dying strip's) own call stack.
+                // trackAtMenuOpenTime is a ref-counted te::AudioTrack::Ptr, so
+                // the real engine track stays alive across the hop even though
+                // the UI component asking for it will not — no raw `this`/
+                // `safeThis` capture crosses the async boundary at all.
+                juce::MessageManager::callAsync ([workflowPtr, trackAtMenuOpenTime]
+                {
+                    if (trackAtMenuOpenTime != nullptr)
+                        workflowPtr->createAndRouteNewFXChannel (*trackAtMenuOpenTime);
+                });
+                return;
             }
 
-            if (busNumber > 0)
-                safeThis->createSendToBus (busNumber);
+            if (auto it = menuIdToBusNumber.find (result); it != menuIdToBusNumber.end())
+                safeThis->createSendToBus (it->second);
         });
 }
 
@@ -1096,7 +1129,7 @@ void MixerStrip::paint (juce::Graphics& g)
     // two pools can never visually drift apart.
     auto drawVoidWell = [&g] (juce::Rectangle<float> well)
     {
-        constexpr float cornerRadius = 3.0f;
+        constexpr float cornerRadius = DSMixer::wellCornerRadius;
 
         if (well.getHeight() <= 0.0f || well.getWidth() <= 0.0f) // QA: guard against a negative/zero rect on a pathologically narrow strip
             return;
@@ -1170,9 +1203,9 @@ void MixerStrip::paint (juce::Graphics& g)
     {
         auto ib = trackIconBounds.toFloat();
         g.setColour (CrateColors::DarkBackground);
-        g.fillRoundedRectangle (ib, 3.0f);
+        g.fillRoundedRectangle (ib, (float) DSMixer::trackIconCornerRadius);
         g.setColour (LAF::colorTextSecondary);
-        g.setFont (juce::FontOptions (12.0f));
+        g.setFont (juce::FontOptions (CrateDesignSystem::Typography::trackIconGlyphFontSize));
         g.drawText (juce::String::charToString ((juce::juce_wchar) 0x266A), trackIconBounds, juce::Justification::centred); // ♪
     }
 
@@ -1203,13 +1236,13 @@ void MixerStrip::paint (juce::Graphics& g)
     g.setColour (LAF::colorTheVoid);
     g.fillRect (grMeterBounds);
 
-    constexpr float grRangeDb = 20.0f;
+    constexpr float grRangeDb = DSMixer::grRangeDb;
     const auto grNormalised = juce::jlimit (0.0f, 1.0f, gainReductionDb / grRangeDb);
     const auto grFillHeight = grMeterBounds.getHeight() * grNormalised;
 
     if (grFillHeight > 0.0f)
     {
-        g.setColour (juce::Colour (0xffffb000)); // amber, hanging from the top
+        g.setColour (juce::Colour (CrateDesignSystem::Colors::grMeterAmber)); // amber, hanging from the top
         g.fillRect (grMeterBounds.withHeight (grFillHeight));
     }
 
@@ -1236,8 +1269,21 @@ void MixerStrip::resized()
     // Embedded icon at the ABSOLUTE bottom (no plate/border — see paint()),
     // track name (the Mute toggle) directly above it, R/S/I triad directly
     // above that. No more separate M button or colour strip.
-    trackIconBounds = bounds.removeFromBottom (scribbleIconH).withSizeKeepingCentre (scribbleIconH, scribbleIconH);
+    //
+    // Mixer Bottom-Alignment (Ableton Accuracy): a return track (TrackUtils::
+    // isReturnTrack()) has no track-type icon at all — same as MasterStrip,
+    // which never draws one either. Fader Alignment directive: MasterStrip's
+    // outerMargin now matches this class's EXACTLY (4, not 6), so the full
+    // scribbleIconH+scribbleGap slot must always be reserved regardless of
+    // track type — only whether trackIconBounds is non-empty (and therefore
+    // painted) changes. Reserving a smaller slot for return tracks (the old
+    // ad-hoc removeFromBottom(2) compensation) is what used to make the
+    // baselines line up against MasterStrip's old, now-corrected geometry —
+    // with both sides fixed to the identical budget, that compensation would
+    // instead throw the alignment off.
+    auto iconSlot = bounds.removeFromBottom (scribbleIconH).withSizeKeepingCentre (scribbleIconH, scribbleIconH);
     bounds.removeFromBottom (scribbleGap);
+    trackIconBounds = (track != nullptr && TrackUtils::isReturnTrack (*track)) ? juce::Rectangle<int>() : iconSlot;
     trackNameLabel.setBounds (bounds.removeFromBottom (nameH));
     bounds.removeFromBottom (levelGap);
 
@@ -1247,13 +1293,28 @@ void MixerStrip::resized()
         // spaced within the universal rack width.
         auto row = bounds.removeFromBottom (tripletH)
                           .withX (rackMargin).withWidth (universalWidth);
-        constexpr int gap = 2;
-        const int each = juce::jmax (0, (row.getWidth() - gap * 2) / 3); // QA: never a negative width if the strip is ever narrower than the gaps
-        recordButton.setBounds (row.removeFromLeft (each));
-        row.removeFromLeft (gap);
-        soloButton.setBounds (row.removeFromLeft (each));
-        row.removeFromLeft (gap);
-        inputMonitorButton.setBounds (row); // remainder absorbs integer-division rounding
+        constexpr int gap = DSMixer::triadGap;
+
+        if (isReturnTrackFlag)
+        {
+            // R/S/I Return-Track Logic: no 'I' slot at all — Post/Pre and
+            // Solo split the full row width between just the two of them
+            // instead of leaving the freed third dead/empty.
+            const int each = juce::jmax (0, (row.getWidth() - gap) / 2);
+            recordButton.setBounds (row.removeFromLeft (each));
+            row.removeFromLeft (gap);
+            soloButton.setBounds (row); // remainder absorbs integer-division rounding
+            inputMonitorButton.setBounds ({});
+        }
+        else
+        {
+            const int each = juce::jmax (0, (row.getWidth() - gap * 2) / 3); // QA: never a negative width if the strip is ever narrower than the gaps
+            recordButton.setBounds (row.removeFromLeft (each));
+            row.removeFromLeft (gap);
+            soloButton.setBounds (row.removeFromLeft (each));
+            row.removeFromLeft (gap);
+            inputMonitorButton.setBounds (row); // remainder absorbs integer-division rounding
+        }
     }
     bounds.removeFromBottom (levelGap);
 

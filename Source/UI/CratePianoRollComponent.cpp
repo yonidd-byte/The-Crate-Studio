@@ -4,6 +4,7 @@
 #include "PianoRollExpressionLane.h"
 #include "PianoRollArticulationLane.h"
 #include "CrateMidiInspectorComponent.h"
+#include "CrateColors.h"
 
 using namespace CratePianoRoll;
 
@@ -108,17 +109,23 @@ namespace
     // Keyboard sidebar's own key colours — deliberately distinct from the
     // grid's row-shading colour above (a translucent overlay vs. the sidebar's
     // own opaque key faces), same two-different-jobs split TrackHeaderComponent
-    // and MixerStrip already keep for the "same fact, two views" pattern. A
-    // near-white/near-black pair, not literal juce::Colours::white/black, so
-    // they still sit comfortably in the app's dark theme rather than glaring.
+    // and MixerStrip already keep for the "same fact, two views" pattern.
+    // keyboardWhiteKeyColour is a genuine carve-out from the Global Color
+    // Centralization & Purge directive, not an oversight: CrateColors has no
+    // near-white brand value (its 4 colours are all near-black/mid-grey/
+    // accent), and real piano keys must read as white, so this stays its own
+    // literal by necessity. keyboardBlackKeyColour, however, WAS a stray
+    // near-black duplicate of CrateColors::DarkBackground — collapsed onto it.
     const auto keyboardWhiteKeyColour  = juce::Colour (0xffd8d8dc);
-    const auto keyboardBlackKeyColour  = juce::Colour (0xff1a1a1e);
+    const auto keyboardBlackKeyColour  = CrateColors::DarkBackground;
     const auto keyboardSeparatorColour = juce::Colours::black.withAlpha (0.4f);
 
     // Vibrant, distinct MIDI-note colour — deliberately NOT LAF::clip (the
-    // muted pastel Arrangement uses for audio-clip blocks); notes need to read
-    // clearly against the grid at a glance, closer to FL Studio's own vivid
-    // note-block green.
+    // muted pastel Arrangement uses for audio-clip blocks) and deliberately
+    // NOT folded into CrateColors either: notes need to read clearly against
+    // the grid at a glance, closer to FL Studio's own vivid note-block green.
+    // Same semantic-status carve-out as Mute/Solo/Record — a real state
+    // colour, not brand chrome — just one CrateColors doesn't itself define.
     const auto midiNoteColour = juce::Colour (0xff2ecc8f);
 }
 

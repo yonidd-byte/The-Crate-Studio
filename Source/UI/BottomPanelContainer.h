@@ -4,6 +4,7 @@
 
 #include "MasterAnalyzerComponent.h"
 #include "CrateColors.h"
+#include "CrateDesignSystem.h"
 
 /**
     Hybrid Device & Mixer Paradigm (MASTER_ARCHITECTURE.md) — a context-aware
@@ -34,7 +35,7 @@ public:
         midiFxPlaceholder.setJustificationType (juce::Justification::centred);
         midiFxPlaceholder.setText ("[ MIDI FX / Generators chain \xe2\x80\x94 coming soon ]", juce::dontSendNotification);
         midiFxPlaceholder.setColour (juce::Label::textColourId, CrateColors::BrandGray);
-        midiFxPlaceholder.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+        midiFxPlaceholder.setFont (juce::FontOptions (CrateDesignSystem::Typography::midiFxPlaceholderFontSize, juce::Font::bold));
     }
 
     /** MainComponent calls this with its CURRENT UniversalDeviceChainComponent
@@ -79,7 +80,7 @@ public:
     // prior doc comment); this just extends that same fixed-height contract
     // to the Analyzer/MIDI-FX panels too, so toggling the bottom zone never
     // makes the window jitter differently depending on which view you're in.
-    static constexpr int preferredHeight = 235;
+    static constexpr int preferredHeight = CrateDesignSystem::Metrics::BottomPanel::preferredHeight;
 
     void resized() override
     {
