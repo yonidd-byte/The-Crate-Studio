@@ -1,4 +1,5 @@
 #include "CrateStressTest.h"
+#include "Engine/CrateAnticipativeWrapper.h"
 
 #if JUCE_DEBUG
 
@@ -24,9 +25,10 @@ void CrateStressTest::runExtremeLoadTest (te::Edit& edit)
     auto& um = edit.getUndoManager();
     um.beginNewTransaction ("QA Stress Test: Generate Extreme Load Session");
 
-    int tracksCreated  = 0;
-    int pluginsLoaded  = 0;
-    int clipsCreated   = 0;
+    int tracksCreated       = 0;
+    int pluginsLoaded       = 0;
+    int innerPluginsWired   = 0;
+    int clipsCreated        = 0;
 
     for (int i = 0; i < numTracks; ++i)
     {
@@ -40,16 +42,36 @@ void CrateStressTest::runExtremeLoadTest (te::Edit& edit)
 
         ++tracksCreated;
 
-        // Alternate EQ/Compressor so both built-in DSP paths get exercised
-        // across the multi-core distribution (CrateEngineBehaviour::
-        // getNumberOfCPUsToUseForAudio()), not just one plugin type.
-        const auto pluginType = (i % 2 == 0) ? te::EqualiserPlugin::xmlTypeName
-                                              : te::CompressorPlugin::xmlTypeName;
-
-        if (auto plugin = edit.getPluginCache().createNewPlugin (pluginType, juce::PluginDescription()))
+        // Anticipative FX Step 2 Verification directive: the plugin actually
+        // inserted onto the track is the CrateAnticipativeWrapper PROXY, not
+        // a bare EQ/Compressor — the real DSP lives behind it as
+        // innerPlugin, so this stress test exercises the synchronous
+        // forwarding path (initialise/applyToBuffer/state) under 100-track
+        // load, not just a hand-picked single-plugin unit test. Alternating
+        // EQ/Compressor as the inner type still exercises both built-in DSP
+        // paths across the multi-core distribution (CrateEngineBehaviour::
+        // getNumberOfCPUsToUseForAudio()).
+        if (auto wrapperPlugin = edit.getPluginCache().createNewPlugin (CrateAnticipativeWrapper::xmlTypeName, juce::PluginDescription()))
         {
-            track->pluginList.insertPlugin (plugin, -1, nullptr);
+            track->pluginList.insertPlugin (wrapperPlugin, -1, nullptr);
             ++pluginsLoaded;
+
+            if (auto* wrapper = dynamic_cast<CrateAnticipativeWrapper*> (wrapperPlugin.get()))
+            {
+                const auto innerType = (i % 2 == 0) ? te::EqualiserPlugin::xmlTypeName
+                                                     : te::CompressorPlugin::xmlTypeName;
+
+                if (auto innerPlugin = edit.getPluginCache().createNewPlugin (innerType, juce::PluginDescription()))
+                {
+                    wrapper->setInnerPlugin (innerPlugin);
+
+                    // Verify the wiring actually took (getInnerPlugin() reads
+                    // back the SAME pointer just assigned) rather than
+                    // trusting setInnerPlugin() silently succeeded.
+                    if (wrapper->getInnerPlugin() == innerPlugin)
+                        ++innerPluginsWired;
+                }
+            }
         }
 
         // Dense dummy clips — MIDI (no source audio file dependency, so this
@@ -88,10 +110,11 @@ void CrateStressTest::runExtremeLoadTest (te::Edit& edit)
     // Backend Logic QA directive: verify the mutation actually landed —
     // assert on COUNTS read back from what was created, not just that the
     // loop above ran to completion without an exception.
-    const bool tracksOk  = (tracksCreated == numTracks);
-    const bool pluginsOk = (pluginsLoaded == numTracks);
-    const bool clipsOk   = (clipsCreated  == numTracks * clipsPerTrack);
-    const bool qaPassed  = tracksOk && pluginsOk && clipsOk;
+    const bool tracksOk  = (tracksCreated     == numTracks);
+    const bool pluginsOk = (pluginsLoaded     == numTracks);
+    const bool innerOk   = (innerPluginsWired == numTracks);
+    const bool clipsOk   = (clipsCreated      == numTracks * clipsPerTrack);
+    const bool qaPassed  = tracksOk && pluginsOk && innerOk && clipsOk;
 
     const auto cpuPercent = edit.engine.getDeviceManager().getCpuUsage() * 100.0f;
 
@@ -102,6 +125,7 @@ void CrateStressTest::runExtremeLoadTest (te::Edit& edit)
            << "Setup time:       " << (int) elapsedMs << " ms\n"
            << "Tracks created:   " << tracksCreated << " / " << numTracks << "\n"
            << "Plugins loaded:   " << pluginsLoaded << " / " << numTracks << "\n"
+           << "Inner FX wired:   " << innerPluginsWired << " / " << numTracks << "\n"
            << "Clips created:    " << clipsCreated  << " / " << (numTracks * clipsPerTrack) << "\n"
            << "Engine CPU usage: " << juce::String (cpuPercent, 1) << " %\n"
            << "Backend QA:       " << (qaPassed ? "PASS" : "FAIL") << "\n"

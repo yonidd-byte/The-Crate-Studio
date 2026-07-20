@@ -1,5 +1,6 @@
 #include "CrateWorkflowManager.h"
 #include "UI/PluginWindow.h"
+#include "Engine/CrateAnticipativeWrapper.h"
 
 #include <set>
 
@@ -74,6 +75,14 @@ CrateWorkflowManager::CrateWorkflowManager()
     // to the host app. CrateEngineBehaviour raises the default 16-plugin-per-track
     // ceiling — see its doc comment above for why that default was being hit.
     engine = std::make_unique<te::Engine> ("The Crate Studio", std::make_unique<CrateUIBehaviour>(), std::make_unique<CrateEngineBehaviour>());
+
+    // Engine Registration directive (Anticipative FX Step 2): the engine has
+    // no way to construct a CrateAnticipativeWrapper from its own xmlTypeName
+    // (createNewPlugin()/ValueTree recreation on load) until a built-in type
+    // is registered for it — same mechanism TE's own PluginManager::
+    // initialise() uses internally for EqualiserPlugin/CompressorPlugin/etc.,
+    // just called from host app code instead of vendored engine code.
+    engine->getPluginManager().createBuiltInType<CrateAnticipativeWrapper>();
 
     initialiseAudioDevice();
 

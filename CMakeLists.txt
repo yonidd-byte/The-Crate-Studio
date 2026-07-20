@@ -14,6 +14,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_subdirectory(modules/JUCE)
 add_subdirectory(modules/tracktion_engine)
 
+# ---------------------------------------------------------------------------
+# Anticipative FX (Shadow Freezing) directive — moodycamel::ReaderWriterQueue,
+# the single-producer/single-consumer wait-free ring buffer CrateAnticipativeWrapper
+# will use to hand pre-rendered background-thread audio blocks to the
+# real-time callback without a lock. Header-only, pulled via FetchContent
+# rather than vendored as a git submodule (it's a single header, not a build
+# of its own) — CMake fetches/configures it once and caches it under
+# build/_deps, same as any other FetchContent dependency.
+include(FetchContent)
+FetchContent_Declare(
+    readerwriterqueue
+    GIT_REPOSITORY https://github.com/cameron314/readerwriterqueue.git
+    GIT_TAG v1.0.6
+)
+FetchContent_MakeAvailable(readerwriterqueue)
+
 juce_add_gui_app(TheCrateStudio
     BUNDLE_ID "com.thecrate.thecratestudio"
     PRODUCT_NAME "The Crate Studio"
@@ -44,6 +60,7 @@ target_sources(TheCrateStudio PRIVATE
     Source/MainComponent.cpp
     Source/CrateWorkflowManager.cpp
     Source/CrateStressTest.cpp
+    Source/Engine/CrateAnticipativeWrapper.cpp
     Source/UI/TransportBar.cpp
     Source/UI/TimelineComponent.cpp
     Source/UI/MixerComponent.cpp
@@ -89,6 +106,7 @@ target_compile_definitions(TheCrateStudio PRIVATE
 target_link_libraries(TheCrateStudio PRIVATE
     TheCrateStudioAssets
     tracktion::tracktion_engine
+    readerwriterqueue
     juce::juce_audio_utils
     juce::juce_gui_extra
     juce::juce_opengl
