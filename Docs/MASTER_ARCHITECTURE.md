@@ -28,6 +28,8 @@ There are no "Workspaces." There is no "Mix Mode" vs "Edit Mode" vs "Beatmaking 
 
 *Engineering consequence:* All top-level views are persistent `juce::Component` instances in a single window hierarchy. Panels animate visibility; they are never destroyed and rebuilt. No modal dialogs for anything a user does more than once a week.
 
+*Strictly prohibited:* Tabbed Multi-Project workflows and dedicated Mastering/Album view pages. These violate the single-window paradigm and bloat the memory footprint. The DAW is for production and mixing only.
+
 #### **Law II — Progressive Disclosure via Collapsible Panels**
 Advanced modules — Control Room, Setlist Manager, Cloud Studio, Spectrogram, Video Engine — live in **edge-docked side panels**, toggled by minimal, unlabeled-until-hover edge buttons. Default state for every advanced panel is **collapsed**. A first-run user sees a Browser, an Arrangement, a Mixer, and a Device Chain. That's it. The other 80% of the DAW is one click away and zero pixels wide.
 
@@ -218,6 +220,7 @@ This module is **100% context-menu driven.** Not one pixel of it exists on scree
 | **Deep MPE** | Core-level MIDI Polyphonic Expression passed natively to VST3. |
 | **MIDI Feedback LEDs** | Ableton-style LED blinks in the transport bar and on track meters on incoming MIDI. |
 | **CTRL+M Mapping Mode** | Assign any physical controller to any UI parameter, **with Min/Max value scaling** (e.g. CC knob → Delay Time, clamped to 20–300ms). |
+| **Per-Note Probability & Conditions** | Per-note humanization/generative logic (fire chance, velocity-conditional triggering) accessible **purely via context right-click on piano roll notes** — no dedicated panel, no persistent inspector. |
 
 ### How this fits the clean UI
 
@@ -226,6 +229,7 @@ This module is **100% context-menu driven.** Not one pixel of it exists on scree
 - **CTRL+M is a mode, not a screen** — press it, the UI enters mapping tint, click a control, move a knob, done. Min/Max clamping is a right-click popover on the mapping.
 - **The Logical Editor is the one genuinely complex UI in the product**, and it therefore lives *exclusively* in a collapsible right-side panel, off by default, opened from a piano-roll right-click. Power users find it; nobody else ever sees it.
 - **MIDI LEDs are 6px.** They are the only always-visible element this module contributes.
+- **Per-Note Probability & Conditions has zero idle footprint by Law III.** Right-click a note (or a multi-note selection) → a popover exposes fire-chance and velocity-conditional triggers. No dedicated inspector panel exists for it; nothing renders on an unselected note.
 
 ---
 
@@ -276,6 +280,7 @@ Tempo intelligence is defined by what the user *doesn't* do. Dragging a 92 BPM l
 | **Hardware Insert Ping** | Internal plugin that measures external analog hardware round-trip delay and auto-compensates (PDC). |
 | **The Endgame Ecosystem** | Infrastructure to host large first-party/partner audio bundles as integral software components. |
 | **API Wrapper** | Sandboxed Lua/Python scripting for community tools and MIDI extensions — **without touching core C++ source.** |
+| **Mix Engine FX (Console State)** | A single dedicated analog crosstalk/saturation slot **permanently pinned at the top of every Group/Master track's insert stack** in the Mixer — the "sounds like a console" glue tape saturation modeled DAWs otherwise bury as an optional plugin. |
 
 ### How this fits the clean UI
 
@@ -288,6 +293,20 @@ This is the module most likely to destroy the interface, so it is governed by th
 - **Retrospective MIDI Record is one small button in the transport bar** (`⟲ MIDI`). It has no settings. It cannot be configured. It just saves you.
 - **The Atmos 3D Object Panner replaces the standard pan control** in the mixer strip when the project is in immersive mode. It does not add a control — it *swaps* one.
 - **The Scripting API surfaces as a console panel** (collapsible, bottom-right, off by default) and as user-defined entries in existing context menus. Community scripts appear where the user already right-clicks. They **cannot** add toolbar buttons. This is enforced at the API level, not by convention.
+- **Mix Engine FX has no "add" step and cannot be removed.** It is not a plugin slot the user drags something into — it's baked console character permanently pinned at the top of the insert stack on Group/Master tracks only (never on a regular audio/MIDI track). Bypass is one click; deletion isn't offered, because it isn't a device, it's part of the bus.
+
+---
+
+## 9.1 Proprietary Engine Extensions (The Crate IP)
+
+Tracktion Engine's open-source SDK does not ship runtime plugin sandboxing or Anticipative FX (verified directly against the vendored source — see Section 10's own audit note). Both are real, load-bearing features of this product, not aspirational bullet points, so they are built as proprietary layers *on top of* TE rather than patches *into* it — the vendored engine stays un-forked and upgradeable.
+
+| Extension | Blueprint |
+|---|---|
+| **Anticipative FX (Shadow Freezing)** | A proprietary `te::Plugin` wrapper that intercepts a non-record-armed track's render path. A background thread pre-calculates that track's audio ahead of the transport position and hands the result to the real-time callback through a **lock-free, wait-free ring buffer** (`moodycamel::ReaderWriterQueue`) — the audio thread only ever *reads* a pre-filled buffer, it never blocks on or waits for the background render. Fully decoupled from the real-time callback: a slow/hung background render degrades to "stale buffer, keep playing," never a dropout. |
+| **Isolated Mode (Plugin Sandboxing)** | A headless `CrateSandbox.exe` companion process, one per hosted plugin instance, communicating over **`Boost.Interprocess` shared memory** (audio buffers + parameter state) rather than in-process. A crash, hang, or illegal instruction inside a rogue VST3 takes down only its own sandbox process — detected via a heartbeat, the host swaps in silence for that slot and surfaces a "Plugin Crashed — Reload?" affordance, never the DAW itself. |
+
+**Status:** Out-of-process plugin *scanning* (`CrateEngineBehaviour::canScanPluginsOutOfProcess()`, paired with `te::PluginManager::startChildProcessPluginScan()` in `Main.cpp`) is **already fully implemented** — this is TE's own native scan-time isolation and required no proprietary layer. Shadow Freezing and Isolated Mode above are the two gaps TE's SDK leaves that this section documents as owned, designed IP — not yet implemented in source as of this revision.
 
 ---
 
@@ -301,6 +320,13 @@ These sit beneath every module above. They are not features; violating them is a
 4. **Frictionless I/O.** Last-used ASIO/CoreAudio device is remembered and auto-connected on startup with no dialog.
 5. **The GUI never blocks.** Scanning, indexing, analysis, and pre-render all run on background threads. The user can always keep playing.
 6. **No orphaned components.** Replaced UI code is deleted in the same commit, not left as dead weight.
+7. **Hardware Acceleration.** The UI is strictly GPU-accelerated via `juce::OpenGLContext` attached to `MainComponent` — attached last in the constructor (once the full component subtree exists), detached first in the destructor (before that subtree tears down). *Status: implemented.*
+8. **Aggressive Caching (The `setBufferedToImage` Rule).** Static UI elements (Track/Master Headers, Mixer panels) MUST call `setBufferedToImage(true)`, caching their linear gradients and backgrounds to a bitmap that costs zero CPU on frames where nothing changed. *Status: implemented* on `TrackHeaderComponent` and `MasterHeaderRow`.
+9. **Scoped Repaints & Dynamic Elements.** Dynamic components (meters, the Playhead, waveforms) must NOT be buffered — they stay live, un-cached siblings. Any component that IS buffered must scope its own per-frame `repaint()` calls to a minimal bounding box (e.g. `meterBounds.getSmallestIntegerContainer()`), never the whole component. **A bare `repaint()` on a buffered component that invalidates the entire cached bitmap on every frame is strictly prohibited** — it is worse than no caching at all, not merely wasteful.
+10. **Audio-Thread Purity.** Zero custom DSP in `processBlock`. `Source/` contains no custom `te::Plugin`/`AudioProcessor` subclass — all audio-thread execution runs strictly inside the vendored Tracktion Engine/JUCE graph, which owns real-time-safety for that code. *Verified: grepped for `processBlock`/`applyToBuffer` across `Source/` — zero matches, by design.*
+11. **CPU Allocation.** `CrateEngineBehaviour::getNumberOfCPUsToUseForAudio()` strictly reserves one core (`numCpus - 1`, floored at 1) dedicated entirely to the UI/Message thread — the audio graph never contends with GUI hit-testing/painting for the very last core under a saturated session. *Status: implemented*, overriding TE's own default of every available core.
+
+> **Audit note (Section 9.1 cross-reference):** Tracktion Engine's public SDK was searched directly (not assumed from memory) for `Anticipative`/`nticipat` and for any runtime out-of-process plugin-hosting API — zero matches for either. `EngineBehaviour::canScanPluginsOutOfProcess()` (scan-time isolation only) is the one real, native OOP hook TE exposes. Anticipative FX and full runtime plugin sandboxing are proprietary Crate extensions — see Section 9.1 — not TE features this document is misrepresenting as built-in.
 
 ---
 
@@ -343,7 +369,24 @@ The parts that *are* built (device I/O, VST3 hosting, curve automation with dura
 
 ---
 
-## 12. The One-Sentence Test
+## 12. The Visual Philosophy (The Holy Trinity)
+
+Three reference DAWs, three specific properties borrowed — never the whole product, never a skin. Every pixel decision in this codebase traces back to one of these three, and to nothing else.
+
+#### **The Ableton Core (Speed & Grid)**
+Dynamic elements remain flat — no gradients, no bevels on anything that changes value in real time. The strict **13px hardware grid** rules absolute layout and hit-testing: every Column 2/3 row, every value box, every button is a multiple of this one unit, aligned to the same horizontal datum lines whether the track is folded or expanded, whether it's a regular track, a return, or Master. Muscle memory is king — a control's *position* never moves once you've learned it, only its *visibility* does.
+
+#### **The Logic Pro Depth (Faking Luxury)**
+We will **never** use expensive real-time JUCE `DropShadow`s — they're a per-frame blur cost paid by every repaint, for a DAW built to run flawlessly on an old laptop mid-set. 3D depth and "premium hardware" read is faked entirely with **cached linear gradients** (baked once into a `setBufferedToImage` bitmap, not recomputed) and **1px micro-beveling / inner strokes** — a dark pixel on one edge, a light pixel on the opposite edge, nothing more. The illusion of depth costs the same one-time bitmap render as a flat fill.
+
+#### **The FL Studio Touch (Softness & Feedback)**
+A subtle **2px border radius** on hardware boxes breaks the industrial rigidity the strict grid would otherwise read as cold. Color feedback is **highly saturated and glowing, but strictly localized to active states only** — Solo, Record-Arm, Selection — never ambient. An idle control is flat and quiet; the instant it's live, it's the loudest thing on the panel. This is the same "quiet until it matters" principle Section 0's Prime Directive applies to features, applied here to color.
+
+> **Enforcement:** a PR that adds a `DropShadow`, an ambient (non-state-driven) glow, a gradient recomputed every `paint()` call instead of cached, or a control whose position shifts between two states it can be in, is rejected on sight — same standing as a Section 0.2 Law violation.
+
+---
+
+## 13. The One-Sentence Test
 
 Before any feature ships, it must answer this:
 

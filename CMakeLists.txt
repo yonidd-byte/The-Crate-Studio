@@ -43,6 +43,7 @@ target_sources(TheCrateStudio PRIVATE
     Source/Main.cpp
     Source/MainComponent.cpp
     Source/CrateWorkflowManager.cpp
+    Source/CrateStressTest.cpp
     Source/UI/TransportBar.cpp
     Source/UI/TimelineComponent.cpp
     Source/UI/MixerComponent.cpp
@@ -57,6 +58,8 @@ target_sources(TheCrateStudio PRIVATE
     Source/UI/HardwareSlotLookAndFeel.cpp
     Source/UI/GhostButtonLookAndFeel.cpp
     Source/UI/FlatGridComboLookAndFeel.cpp
+    Source/UI/CrateValueBox.cpp
+    Source/UI/CrateFoldArrow.cpp
     Source/UI/PluginSlotComponent.cpp
     Source/UI/PluginWindow.cpp
     Source/UI/TheCrateLookAndFeel.cpp
@@ -88,6 +91,7 @@ target_link_libraries(TheCrateStudio PRIVATE
     tracktion::tracktion_engine
     juce::juce_audio_utils
     juce::juce_gui_extra
+    juce::juce_opengl
     juce::juce_recommended_config_flags
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags

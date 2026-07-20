@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "UI/CrateColors.h"
+#include "CrateStressTest.h"
 
 namespace
 {
@@ -47,9 +48,25 @@ MainComponent::MainComponent()
     // Global Spacebar Play/Stop — see keyPressed()'s doc comment in the header.
     setWantsKeyboardFocus (true);
     grabKeyboardFocus();
+
+    // Bulletproof Live Mode / Hardware Acceleration directive: attach LAST,
+    // once every child is already in place — attachTo() triggers an
+    // immediate full repaint of this component and its whole subtree, so
+    // there's no benefit (and a real risk of attaching against a
+    // half-constructed tree) to doing it any earlier.
+    openGLContext.attachTo (*this);
 }
 
-MainComponent::~MainComponent() = default;
+MainComponent::~MainComponent()
+{
+    // MUST detach before this Component (and everything under it) starts
+    // being torn down — the GL context holds a live reference to this
+    // peer/component tree for its render callback, and detaching here
+    // (rather than relying on ~OpenGLContext() during member destruction,
+    // which runs AFTER this body, once children are already gone) is the
+    // documented-safe teardown order.
+    openGLContext.detach();
+}
 
 void MainComponent::rebuildUIForEdit()
 {
@@ -584,6 +601,22 @@ void MainComponent::fileDragExit (const juce::StringArray&)
 
 bool MainComponent::keyPressed (const juce::KeyPress& key)
 {
+   #if JUCE_DEBUG
+    // Debug-Only QA Harness directive: hidden, undocumented, and physically
+    // absent from a Release build (CrateStressTest.h's own JUCE_DEBUG guard
+    // strips the class itself, not just this call site) — Ctrl+Alt+Shift+S
+    // is deliberately obscure and appears nowhere in any menu or shortcut
+    // list, so an end user cannot discover or trigger it by accident.
+    if (key.getKeyCode() == (int) 'S'
+        && key.getModifiers().isCtrlDown()
+        && key.getModifiers().isAltDown()
+        && key.getModifiers().isShiftDown())
+    {
+        CrateStressTest::runExtremeLoadTest (workflow->getEdit());
+        return true;
+    }
+   #endif
+
     if (key == juce::KeyPress::spaceKey)
     {
         if (workflow->getEdit().getTransport().isPlaying())

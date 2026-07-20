@@ -183,6 +183,13 @@ private:
     // here makes all of them work at once. Not Edit-bound, constructed once.
     juce::TooltipWindow tooltipWindow { this };
 
+    // Bulletproof Live Mode / Hardware Acceleration directive: attached in
+    // the constructor, detached in the destructor (MUST happen before this
+    // Component is destroyed — see the destructor's own comment) — offloads
+    // compositing this whole window's cached-to-image bitmaps + live child
+    // repaints to the GPU instead of the CPU-side software renderer.
+    juce::OpenGLContext openGLContext;
+
     // arrangement/mixer/deviceChain are destroyed and reconstructed by
     // rebuildUIForEdit() (Load), so their own isVisible() can't survive that as the
     // source of truth for view/zone state — these do, and rebuildUIForEdit()

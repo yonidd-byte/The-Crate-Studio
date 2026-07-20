@@ -30,6 +30,12 @@ namespace
     const juce::Identifier inputCategoryPropertyID ("crateInputCategory");
     const juce::Identifier outputCategoryPropertyID ("crateOutputCategory");
 
+    // Master Track Fold Parity directive: Master has no te::Track of its own
+    // to hang a property on, so this persists straight on the Edit's own
+    // root state — same .crate save/load path (MASTER_ARCHITECTURE.md
+    // invariant 3) every other persisted property here already uses.
+    const juce::Identifier masterFoldedPropertyID ("crateMasterFolded");
+
     // Zone 3 grid spec: bars slightly brighter, beats very subtle — expressed as
     // true opacity over the lane fill rather than two similarly-dark flat colours,
     // so "low opacity" reads as low opacity regardless of the panel colour beneath.
@@ -1215,6 +1221,14 @@ public:
     {
         setWantsKeyboardFocus (false);
 
+        // Bulletproof Live Mode / Aggressive Caching directive — same
+        // reasoning as TrackHeaderComponent's own setBufferedToImage() call:
+        // this row's panel fills/borders only change on user action
+        // (select/mute/fold), so JUCE caches them to a bitmap; the level
+        // meter stays real-time because timerCallback() below scopes its
+        // repaint() to meterBounds only, not the whole component.
+        setBufferedToImage (true);
+
         // Same idempotent find-or-create MasterStrip's constructor uses —
         // reads the SAME underlying te::LevelMeterPlugin either way, so this
         // row's meter and the Mixer's MasterStrip meter show identical levels.
@@ -1233,63 +1247,62 @@ public:
         // The name plate IS the Mute toggle (see mouseDown()) — clicks must
         // fall through to this component's own mouseDown(), same
         // setInterceptsMouseClicks(false, false) MixerStrip's identical
-        // trackNameLabel uses.
+        // trackNameLabel uses. Column 1 Parity directive: the standard track
+        // header's OWN name font (13.0f), not a bespoke larger legacy size.
+        // Text Contrast Fix directive: colour is hardcoded purely off
+        // selected (see refreshNameLabelContrast()), not mute state.
         addAndMakeVisible (nameLabel);
         nameLabel.setText ("MASTER", juce::dontSendNotification);
         nameLabel.setJustificationType (juce::Justification::centred);
-        nameLabel.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        nameLabel.setFont (juce::FontOptions (CrateDesignSystem::Typography::headerNameFontSize, juce::Font::bold));
+        nameLabel.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
         nameLabel.setInterceptsMouseClicks (false, false);
+        refreshNameLabelContrast();
 
-        // Master Track Dynamics directive: EXACTLY two routing dropdowns —
-        // "Cue Out" (top) and "Master Out" (bottom) — no Input/Monitor rows
-        // at all (Master has no input concept). Same disclosed-cosmetic
-        // treatment every other routing combo in this app already uses (no
-        // real cue-bus model exists in this engine) — Master Out's item at
-        // least reflects the real destination name, same as a regular
-        // track's Output Specific combo does for its own "Master" item.
-        const auto styleMasterCombo = [this] (juce::ComboBox& c)
-        {
-            c.setColour (juce::ComboBox::backgroundColourId, CrateColors::DarkBackground);
-            c.setColour (juce::ComboBox::outlineColourId,    juce::Colours::transparentBlack);
-            c.setColour (juce::ComboBox::textColourId,       CrateColors::BrandGray);
-            c.setColour (juce::ComboBox::arrowColourId,      CrateColors::NeonBlue);
-            c.setColour (juce::ComboBox::focusedOutlineColourId, juce::Colours::transparentBlack);
-            c.setJustificationType (juce::Justification::centredLeft);
-            c.setLookAndFeel (&flatGridLookAndFeel);
-        };
+        // Master Track Fold Parity directive: same disclosure glyph a
+        // standard track's Column 1 uses, reading isCollapsed straight off
+        // this row (no second copy of the state).
+        addAndMakeVisible (foldArrow);
+        foldArrow.isExpanded = [this] { return ! isCollapsed; };
+        foldArrow.onClick = [this] { toggleFold(); };
 
-        addAndMakeVisible (cueOutCombo);
-        styleMasterCombo (cueOutCombo);
-        cueOutCombo.addItem ("1/2", 1);
-        cueOutCombo.setSelectedId (1, juce::dontSendNotification);
-        cueOutCombo.setTooltip ("Cue routing isn't wired to the engine yet - display only.");
+        isCollapsed = (bool) edit.state.getProperty (masterFoldedPropertyID, false);
 
-        addAndMakeVisible (masterOutCombo);
-        styleMasterCombo (masterOutCombo);
-        masterOutCombo.addItem ("Stereo Out", 1); // matches MasterStrip's own outputSlot label
-        masterOutCombo.setSelectedId (1, juce::dontSendNotification);
-        masterOutCombo.setTooltip ("Master's real, fixed output destination.");
+        // Redundant Dropdown Removal directive: Master's Column 2 is now a
+        // SINGLE "1/2" hardware-output dropdown — the old second "Master
+        // Out"/"Stereo Out" combo was redundant (Master only ever has one
+        // real destination). Same disclosed-cosmetic treatment every other
+        // routing combo in this app already uses (no real hardware-output
+        // enumeration exists in this engine).
+        addAndMakeVisible (outputCombo);
+        outputCombo.setColour (juce::ComboBox::backgroundColourId, CrateColors::DarkBackground);
+        outputCombo.setColour (juce::ComboBox::outlineColourId,    juce::Colours::transparentBlack);
+        outputCombo.setColour (juce::ComboBox::textColourId,       CrateColors::BrandGray);
+        outputCombo.setColour (juce::ComboBox::arrowColourId,      CrateColors::NeonBlue);
+        outputCombo.setColour (juce::ComboBox::focusedOutlineColourId, juce::Colours::transparentBlack);
+        outputCombo.setJustificationType (juce::Justification::centredLeft);
+        outputCombo.setLookAndFeel (&flatGridLookAndFeel);
+        outputCombo.addItem ("1/2", 1);
+        outputCombo.setSelectedId (1, juce::dontSendNotification);
+        outputCombo.setTooltip ("Master's fixed hardware output - display only, not wired to real hardware routing yet.");
 
         // REAL Volume + Pan — bound directly to edit.getMasterVolumePlugin(),
-        // the same object MasterStrip's own Mixer controls use.
+        // the same object MasterStrip's own Mixer controls use. Column 3
+        // Parity directive: CrateVolumeBar/CratePanBar (CrateValueBox.h) —
+        // the EXACT same flat 13px drag-boxes a standard track's Column 3
+        // Row 2 uses, not a juce::Slider LinearHorizontal bar / rotary
+        // pan_knob.png filmstrip. Same class, same paint(), same
+        // vertical-drag mouse mechanics — 100% parity, not a lookalike.
         volumePlugin = edit.getMasterVolumePlugin();
 
-        volumeSlider.setSliderStyle (juce::Slider::LinearHorizontal);
-        volumeSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        volumeSlider.setRange (-60.0, 6.0, 0.1);
+        volumeSlider.setRange (-60.0, 6.0);
         addAndMakeVisible (volumeSlider);
-
-        panKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-        panKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        panKnob.setRange (-1.0, 1.0, 0.01);
-        panKnob.setDoubleClickReturnValue (true, 0.0);
-        addAndMakeVisible (panKnob);
+        addAndMakeVisible (panBar);
 
         if (volumePlugin != nullptr)
         {
             volumeSlider.setValue (volumePlugin->getVolumeDb(), juce::dontSendNotification);
-            panKnob.setValue (volumePlugin->getPan(), juce::dontSendNotification);
-            applyMuteStateToNameLabel();
+            panBar.setValue (volumePlugin->getPan(), juce::dontSendNotification);
 
             volumeSlider.onDragStart = [this]
             {
@@ -1299,13 +1312,13 @@ public:
             volumeSlider.onDragEnd = [this] { volumePlugin->volParam->parameterChangeGestureEnd(); };
             volumeSlider.onValueChange = [this] { volumePlugin->setVolumeDb ((float) volumeSlider.getValue()); };
 
-            panKnob.onDragStart = [this]
+            panBar.onDragStart = [this]
             {
                 volumePlugin->panParam->getEdit().getUndoManager().beginNewTransaction ("Tweak Master Pan");
                 volumePlugin->panParam->parameterChangeGestureBegin();
             };
-            panKnob.onDragEnd = [this] { volumePlugin->panParam->parameterChangeGestureEnd(); };
-            panKnob.onValueChange = [this] { volumePlugin->setPan ((float) panKnob.getValue()); };
+            panBar.onDragEnd = [this] { volumePlugin->panParam->parameterChangeGestureEnd(); };
+            panBar.onValueChange = [this] { volumePlugin->setPan ((float) panBar.getValue()); };
 
             // Bidirectional sync — a tweak from MasterStrip's OWN Mixer
             // controls (same underlying plugin) reaches back here too.
@@ -1320,8 +1333,7 @@ public:
     {
         stopTimer();
 
-        cueOutCombo.setLookAndFeel (nullptr);
-        masterOutCombo.setLookAndFeel (nullptr);
+        outputCombo.setLookAndFeel (nullptr);
 
         if (volumePlugin != nullptr)
         {
@@ -1339,10 +1351,30 @@ public:
             return;
 
         selected = shouldBeSelected;
+        refreshNameLabelContrast();
         repaint();
     }
 
     std::function<void()> onSelected;
+
+    // Master Track Fold Parity directive: the owner (ArrangementComponent)
+    // re-runs its own resized() off this whenever Master's fold state
+    // changes — same "no lane dock to keep in step" simplicity that let
+    // MasterLaneRow be deleted entirely (see the class's own top comment).
+    std::function<void()> onFoldToggled;
+
+    // Master Track Fold Parity directive: expanded height stays Master's
+    // existing fixed clipLaneHeight (Directive 2 is about ALIGNMENT within
+    // that height, not its magnitude); folded height reads the SAME shared
+    // computePreferredHeight() a standard folded track uses, not a separate
+    // hand-picked literal, so the two can never drift out of sync.
+    int getPreferredHeight() const
+    {
+        namespace DS = CrateDesignSystem::Metrics::TrackHeader;
+        return isCollapsed
+                   ? TrackHeaderComponent::computePreferredHeight (false, true, DS::noInputCategoryId, DS::masterOutputCategoryId)
+                   : CrateArrangement::clipLaneHeight;
+    }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
@@ -1361,10 +1393,10 @@ public:
             volumePlugin->volParam->getEdit().getUndoManager().beginNewTransaction ("Mute Master");
             volumePlugin->muteOrUnmute();
             // muteOrUnmute() changes volParam's value synchronously, which
-            // fires currentValueChanged() below and re-syncs the plate — but
-            // do it here too so the click feels instant rather than waiting
-            // on the listener round-trip.
-            applyMuteStateToNameLabel();
+            // fires currentValueChanged() below — repaint() here too so the
+            // click feels instant rather than waiting on the listener
+            // round-trip (paint() reads mute state live, nothing to cache).
+            repaint();
         }
     }
 
@@ -1372,41 +1404,42 @@ public:
     {
         namespace DS = CrateDesignSystem::Metrics::TrackHeader;
 
-        const auto w = getWidth();
         const auto h = getHeight();
 
-        // Master Track Parity directive: same base fill TrackHeaderComponent
-        // uses for its whole panel — Master still never shows a track colour
-        // (no Column 1 identity fill override), but the row is now split into
-        // the SAME 3-column grid via the divider lines below, so its column
-        // edges line up pixel-for-pixel with every real track above it.
-        g.setColour (selected ? CrateColors::LightBackground : CrateColors::DarkBackground);
-        g.fillRect (0, 0, w, h);
+        // Selection Isolation directive: Columns 2+3's LightBackground panel
+        // fill NEVER changes with `selected` any more — only Column 1 below
+        // reacts to selection, exactly like a standard track's
+        // getIdentityFillColour() is the ONLY thing that changes there too.
+        g.fillAll (CrateColors::LightBackground);
 
-        if (selected)
+        // Column 1 identity fill — Master Track Parity directive: a distinct,
+        // premium fill (the SAME violet MasterStrip's own nameplate uses in
+        // the Mixer — CrateDesignSystem::Colors::masterNameplateViolet),
+        // darkened when muted (Master's only "Mute Plate" is this column —
+        // see mouseDown() — so mute feedback lives here instead of on the
+        // text), brightened toward white when selected — Selection Isolation
+        // directive: selection is confined to THIS column, nothing else in
+        // the row reacts to it.
         {
-            g.setColour (LAF::accent);
-            g.fillRect (0, 0, DS::accentStripeW, h);
+            const bool isMuted = volumePlugin != nullptr && volumePlugin->getVolumeDb() <= -90.0f;
+            juce::Colour base (CrateDesignSystem::Colors::masterNameplateViolet);
+            if (isMuted)
+                base = base.darker (0.5f);
+
+            g.setColour (selected ? base.interpolatedWith (juce::Colours::white, 0.4f) : base);
+            g.fillRect (0, 0, DS::column1Right, h);
         }
 
-        // ---- Column 3: empty/disabled Solo + Record placeholder ------------
-        // No Solo/Record concept exists for Master — an empty flat slot at
-        // the same grid row a regular track's Solo/Record row occupies, not
-        // a hole in the layout. Strict flat block + 1px border, no rounded
-        // corners/gradients, matching the Strict I/O Grid directive's look.
+        // Folded State Parity directive: same blank, disabled "dummy"
+        // ComboBox-styled placeholder box a standard folded track's Column 2
+        // shows in place of its real (now-hidden) dropdown. Just the fill
+        // here — its border, like every other stroke, is cloned into
+        // paintOverChildren() below (Exact Stroke Parity directive).
+        if (isCollapsed && ! collapsedRoutingPlaceholder.isEmpty())
         {
-            const juce::Rectangle<int> slot (DS::column2Right, 0, w - DS::column2Right, DS::col3RowAH);
-            g.setColour (CrateColors::DarkBackground.darker (0.3f));
-            g.fillRect (slot);
-            g.setColour (CrateColors::BrandGray.withAlpha (0.35f));
-            g.drawRect (slot, 1);
+            g.setColour (CrateColors::DarkBackground);
+            g.fillRect (collapsedRoutingPlaceholder);
         }
-
-        // Quiet Hairlines directive — column separators are low-alpha black
-        // (felt, not seen), same treatment TrackHeaderComponent's own grid uses.
-        g.setColour (juce::Colours::black.withAlpha (DS::hairlineAlpha));
-        g.fillRect (DS::column1Right, 0, DS::separatorW, h);
-        g.fillRect (DS::column2Right, 0, DS::separatorW, h);
 
         // Live level meter fill — drawn directly (not a child Slider/Component)
         // in the reserved meterBounds computed by resized(), same "flat fill,
@@ -1431,71 +1464,137 @@ public:
                         juce::Justification::centredRight);
         }
 
-        // Structural container border — TrackHeaderComponent's own real
-        // paint() only draws a BOTTOM + RIGHT line (every OTHER row's own top
-        // edge is implicitly the previous row's bottom, so a top line there
-        // would be redundant). Master is different: it's an ISOLATED,
-        // self-contained box (not one row in a contiguous stack), and the
-        // next sprint hangs Global Automation lanes directly off its bottom —
-        // so it explicitly gets BOTH top and bottom lines here, making it read
-        // as a complete, rigid container on its own, with a clear boundary
-        // for where those future lanes will begin.
-        // Quiet Hairlines directive: low-alpha black always reads as a subtle
-        // seam regardless of what's underneath — it can never vanish against
-        // its own background the way a fixed opaque colour equal to that
-        // background could (the historical "Giant Blob" bug).
-        g.setColour (juce::Colours::black.withAlpha (DS::hairlineAlpha));
-        g.drawHorizontalLine (0, 0.0f, (float) w);              // top
-        g.drawVerticalLine (w - 1, 0.0f, (float) h);            // right (matches TrackHeaderComponent)
-        g.fillRect (0, h - 1, w, 1);                            // bottom
+        // Structural container border (column separators, top/bottom/right
+        // cuts) moved to paintOverChildren() — Exact Stroke Parity
+        // directive: every one of these is now a byte-for-byte clone of
+        // TrackHeaderComponent::paintOverChildren()'s own stroke logic, so
+        // it lives in the SAME override, for the SAME "hardware grill drawn
+        // after children" reason (see that method's own doc comment).
+    }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        namespace DS = CrateDesignSystem::Metrics::TrackHeader;
+
+        const auto w = getWidth();
+        const auto h = getHeight();
+
+        // Exact Stroke Parity directive: byte-for-byte clone of
+        // TrackHeaderComponent::paintOverChildren()'s own stroke logic —
+        // absolute opaque 2px black column separators (never gate on
+        // isCollapsed — the 3-column x boundaries never move), the folded
+        // dummy-box border, then the global top/bottom/right-edge cuts that
+        // make this row dock visually as the SAME premium hardware grid
+        // every standard track's header uses, instead of the old low-alpha
+        // "quiet hairline" treatment.
+        g.setColour (juce::Colours::black);
+        g.fillRect (DS::column1Right, 0, DS::separatorW, h);
+        g.fillRect (DS::column2Right, 0, DS::separatorW, h);
+
+        if (isCollapsed && ! collapsedRoutingPlaceholder.isEmpty())
+            g.drawRect (collapsedRoutingPlaceholder, 1);
+
+        g.fillRect (0, 0, w, DS::rowBottomBorderH);
+        g.fillRect (0, h - DS::rowBottomBorderH, w, DS::rowBottomBorderH);
+        g.fillRect (w - DS::separatorW, 0, DS::separatorW, h);
     }
 
     void resized() override
     {
         namespace DS = CrateDesignSystem::Metrics::TrackHeader;
 
-        // Master Track Dynamics directive: Column 1 (name) and Column 3
-        // (Volume/Pan/Meter) land on the same absolute positions a regular
-        // track's identity/mini-mixer controls do; Column 2 now hosts the
-        // two REAL Cue Out / Master Out dropdowns instead of placeholder
-        // slots. Master's own outer height stays the fixed clipLaneHeight
-        // ArrangementComponent::resized() already docks it to (unlike
-        // regular/return tracks, Master never folds), so these are literal
-        // pixel positions within that fixed height, not a dynamic stack.
-        nameLabel.setBounds (DS::identityPad, DS::identityPad, DS::column1Right - DS::identityPad * 2, getHeight() - DS::identityPad * 2);
+        // Master's OWN outer bounds (set by ArrangementComponent::resized()
+        // via getPreferredHeight()) already reflect isCollapsed — everything
+        // below is a literal pixel layout within whatever that height is,
+        // not a dynamic content-driven stack.
+        const int h = getHeight();
+        const int col3X = DS::column2Right + 1;
 
-        cueOutCombo.setBounds (DS::column1Right, 0, DS::column2Right - DS::column1Right, DS::rowH);
-        masterOutCombo.setBounds (DS::column1Right, DS::rowH, DS::column2Right - DS::column1Right, DS::rowH);
+        outputCombo.setVisible (! isCollapsed);
 
-        auto col3 = juce::Rectangle<int> (DS::column2Right, 0, getWidth() - DS::column2Right, getHeight());
-        col3.removeFromTop (DS::col3RowAH); // blank — no Solo/Record on Master, see paint()
-        volumeSlider.setBounds (col3.removeFromTop (DS::volumeRowH));
-        panKnob.setBounds (col3.removeFromTop (DS::panSize).withSizeKeepingCentre (DS::panSize, DS::panSize));
-
-        constexpr int meterStripW = 6;
-        meterBounds = getLocalBounds().removeFromRight (meterStripW + DS::identityPad).reduced (0, DS::identityPad).toFloat();
-    }
-
-private:
-    // Mirrors MixerStrip::applyTrackColourToPlate()'s mute-state colour swap
-    // — Master has no track colour, so "unmuted" falls back to LightBackground
-    // (a neutral plate, not the brand accent) rather than a track's own hue.
-    void applyMuteStateToNameLabel()
-    {
-        const bool isMuted = volumePlugin != nullptr && volumePlugin->getVolumeDb() <= -90.0f;
-
-        if (isMuted)
+        if (isCollapsed)
         {
-            nameLabel.setColour (juce::Label::backgroundColourId, CrateColors::DarkBackground);
-            nameLabel.setColour (juce::Label::textColourId, CrateColors::BrandGray);
+            // Folded State Parity directive: Column 1/2/3 all centre on the
+            // EXACT same foldedY = (h - rowH) / 2 a standard folded track
+            // uses. Column 2's real dropdown hides in favour of a blank
+            // dummy placeholder box (paint() draws it) — same "Ableton never
+            // leaves a column visually empty" reasoning. Volume + Pan stay
+            // live: they're Master's ONLY Column 3 content (no Box A/B/C to
+            // fall back on the way a standard track has).
+            const int foldedY = (h - DS::rowH) / 2;
+
+            foldArrow.setBounds (DS::identityPad, foldedY, DS::foldArrowSize, DS::foldArrowSize);
+            const int nameX = DS::identityPad + DS::foldArrowSize + DS::identityPad;
+            nameLabel.setBounds (nameX, foldedY, DS::column1Right - nameX - DS::identityPad, DS::rowH);
+
+            auto col2 = juce::Rectangle<int> (DS::column1Right, 0, DS::column2Right - DS::column1Right, h)
+                            .reduced (DS::col2Inset)
+                            .withTrimmedLeft (DS::separatorW);
+            collapsedRoutingPlaceholder = { col2.getX(), foldedY, col2.getWidth(), DS::rowH };
+
+            volumeSlider.setBounds (col3X + 2,  foldedY, 46, DS::rowH);
+            panBar.setBounds       (col3X + 52, foldedY, 46, DS::rowH);
         }
         else
         {
-            nameLabel.setColour (juce::Label::backgroundColourId, CrateColors::LightBackground);
-            nameLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+            collapsedRoutingPlaceholder = {};
+
+            // Expanded State Alignment directive: pinned to the TOP row
+            // (y=4), NOT vertically centred — a deliberate departure from a
+            // standard track's own expanded Column 1 (which spans its full
+            // height), so Master's single Column 2 row / Column 3 boxes
+            // line up with the very FIRST routing row every standard
+            // track's Column 2 grid starts at, forming one shared
+            // horizontal datum line straight across the whole header dock.
+            constexpr int topY = 4;
+
+            foldArrow.setBounds (DS::identityPad, topY, DS::foldArrowSize, DS::foldArrowSize);
+            const int nameX = DS::identityPad + DS::foldArrowSize + DS::identityPad;
+            nameLabel.setBounds (nameX, topY, DS::column1Right - nameX - DS::identityPad, DS::rowH);
+
+            auto col2 = juce::Rectangle<int> (DS::column1Right, 0, DS::column2Right - DS::column1Right, h)
+                            .reduced (DS::col2Inset)
+                            .withTrimmedLeft (DS::separatorW);
+            outputCombo.setBounds (col2.getX(), topY, col2.getWidth(), DS::rowH);
+
+            volumeSlider.setBounds (col3X + 2,  topY, 46, DS::rowH);
+            panBar.setBounds       (col3X + 52, topY, 46, DS::rowH);
         }
 
-        nameLabel.repaint();
+        // Exact Meter Parity directive: byte-for-byte clone of
+        // TrackHeaderComponent::layoutColumn3()'s own meter math — width 7,
+        // anchored col3X + col3Width - 10 - 7 from the left (i.e. 10px in
+        // from Column 3's own right edge), 3px top/bottom clearance derived
+        // from getHeight() so it's automatically correct in BOTH isFolded
+        // states without any separate folded-height branch of its own.
+        constexpr int meterVerticalPad = 3;
+        meterBounds = juce::Rectangle<int> (col3X + DS::col3Width - 10 - 7, meterVerticalPad, 7, h - meterVerticalPad * 2).toFloat();
+    }
+
+private:
+    // Text Contrast Fix directive: hardcoded purely off `selected` — NOT
+    // mute state any more (mute feedback lives in the Column 1 fill's own
+    // darken-when-muted in paint() instead, so it isn't silently dropped).
+    void refreshNameLabelContrast()
+    {
+        nameLabel.setColour (juce::Label::textColourId, selected ? juce::Colours::black : juce::Colours::white);
+    }
+
+    // Master Track Fold Parity directive: mirrors TrackHeaderComponent's own
+    // toggleFold() — persists straight onto the Edit's root state (Master
+    // has no te::Track of its own to hang a property on), re-lays out
+    // locally, then tells the owner (ArrangementComponent) to re-run ITS
+    // OWN resized() so the header dock's reserved height (which reads this
+    // row's getPreferredHeight()) catches up.
+    void toggleFold()
+    {
+        isCollapsed = ! isCollapsed;
+        edit.state.setProperty (masterFoldedPropertyID, isCollapsed, &edit.getUndoManager());
+        resized();
+        repaint();
+
+        if (onFoldToggled)
+            onFoldToggled();
     }
 
     void currentValueChanged (te::AutomatableParameter&) override
@@ -1504,8 +1603,8 @@ private:
             return;
 
         volumeSlider.setValue (volumePlugin->getVolumeDb(), juce::dontSendNotification);
-        panKnob.setValue (volumePlugin->getPan(), juce::dontSendNotification);
-        applyMuteStateToNameLabel();
+        panBar.setValue (volumePlugin->getPan(), juce::dontSendNotification);
+        repaint(); // mute state (paint()'s Column 1 darken) reads live, nothing to cache
     }
 
     void curveHasChanged (te::AutomatableParameter&) override {}
@@ -1518,7 +1617,14 @@ private:
         const auto levelL = meterClient.getAndClearAudioLevel (0);
         const auto levelR = meterClient.getAndClearAudioLevel (1);
         meterLevelDb = juce::jmax (levelL.dB, levelR.dB);
-        repaint();
+
+        // Aggressive Caching directive: scoped to meterBounds, NOT a bare
+        // repaint() — this row is now setBufferedToImage(true) (see the
+        // constructor), and a whole-component repaint() would invalidate
+        // the ENTIRE cached bitmap on every 24Hz meter tick, making the
+        // cache strictly worse than no caching at all. A scoped repaint
+        // only re-bakes that thin strip back into the cached image.
+        repaint (meterBounds.getSmallestIntegerContainer());
     }
 
     te::Edit& edit;
@@ -1527,13 +1633,16 @@ private:
     te::LevelMeasurer::Client meterClient;
     float meterLevelDb = -60.0f; // -INF floor — real level once timerCallback() starts polling
 
-    juce::Label nameLabel; // also the Mute toggle — see mouseDown()/applyMuteStateToNameLabel()
-    juce::ComboBox cueOutCombo, masterOutCombo; // Master Track Dynamics directive — Column 2's two real routing dropdowns
+    juce::Label nameLabel; // also the Mute toggle — see mouseDown()/refreshNameLabelContrast()
+    CrateFoldArrow foldArrow; // Master Track Fold Parity directive
+    juce::ComboBox outputCombo; // Redundant Dropdown Removal directive — Master's ONE real routing dropdown
     FlatGridComboLookAndFeel flatGridLookAndFeel; // Strict I/O Grid directive — same flat chrome TrackHeaderComponent's combos use
-    juce::Slider volumeSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
-    juce::Slider panKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox };
+    CrateVolumeBar volumeSlider; // Column 3 Parity directive — same flat 13px box a standard track's Column 3 uses
+    CratePanBar panBar; // Column 3 Parity directive — same flat 13px box, vertical-drag mechanic
     juce::Rectangle<float> meterBounds; // computed in resized(), read by paint()
+    juce::Rectangle<int> collapsedRoutingPlaceholder; // Folded State Parity directive — Column 2's dummy box
 
+    bool isCollapsed = false;
     bool selected = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MasterHeaderRow)
@@ -1674,6 +1783,12 @@ ArrangementComponent::ArrangementComponent (te::Edit& editToShow, CrateWorkflowM
         returnHeaderDock->setSelectedTrack (nullptr);
         if (onMasterTrackSelected) onMasterTrackSelected();
     };
+
+    // Master Track Fold Parity directive: folding Master changes ITS OWN
+    // preferred height, which changes how much of the header column is left
+    // for headerColumn/viewport above it — same "re-run the top-level
+    // resized()" pattern returnHeaderDock->onFoldToggled uses.
+    masterHeader->onFoldToggled = [this] { resized(); };
 
     addAndMakeVisible (*masterHeader);
 
@@ -2107,7 +2222,7 @@ void ArrangementComponent::paintOverChildren (juce::Graphics& g)
     // what makes it read as one continuous boundary rather than a line that
     // mysteriously stops partway across.
     g.setColour (juce::Colours::darkgrey);
-    const auto lineY = (float) (getHeight() - clipLaneHeight - returnLaneDock->getTotalHeight());
+    const auto lineY = (float) (getHeight() - masterHeader->getPreferredHeight() - returnLaneDock->getTotalHeight());
     g.drawLine (0.0f, lineY, (float) getWidth(), lineY, 1.0f);
 }
 
@@ -2139,7 +2254,7 @@ void ArrangementComponent::resized()
     // Master pinned to the bottom of the RIGHT column only — the left-side
     // MasterLaneRow is GONE entirely (Lead Architect correction: it was a
     // dead ghost container).
-    masterHeader->setBounds (headersBounds.removeFromBottom (clipLaneHeight));
+    masterHeader->setBounds (headersBounds.removeFromBottom (masterHeader->getPreferredHeight()));
 
     // Hybrid Bus/Return Architecture — return tracks dock directly ABOVE
     // Master, on BOTH sides (header dock above masterHeader; lane dock above

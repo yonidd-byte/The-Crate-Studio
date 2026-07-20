@@ -112,30 +112,6 @@ void TrackHeaderComponent::MutePlate::paintButton (juce::Graphics& g, bool shoul
     g.drawText (number, getLocalBounds(), juce::Justification::centred);
 }
 
-void TrackHeaderComponent::FoldArrow::paintButton (juce::Graphics& g, bool shouldDrawButtonAsHighlighted, bool)
-{
-    const bool expanded = (isExpanded != nullptr) && isExpanded();
-    auto b = getLocalBounds().toFloat().reduced (DS::foldArrowInset);
-
-    juce::Path tri;
-    if (expanded)
-    {
-        // Down-pointing (disclosure open).
-        tri.addTriangle (b.getX(), b.getY(), b.getRight(), b.getY(), b.getCentreX(), b.getBottom());
-    }
-    else
-    {
-        // Right-pointing (disclosure closed).
-        tri.addTriangle (b.getX(), b.getY(), b.getRight(), b.getCentreY(), b.getX(), b.getBottom());
-    }
-
-    // Desaturated Accents directive: NeonBlue is reserved for active values/
-    // automation/the fader thumb — a hover highlight on the fold disclosure
-    // glyph isn't any of those, so it just brightens the same neutral grey.
-    g.setColour (shouldDrawButtonAsHighlighted ? CrateColors::BrandGray.brighter (0.4f) : CrateColors::BrandGray);
-    g.fillPath (tri);
-}
-
 void TrackHeaderComponent::MonitorButton::paintButton (juce::Graphics& g, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown)
 {
     // Monitor Triad Borders directive: unlit reads as a dark sunken box
@@ -175,178 +151,23 @@ void TrackHeaderComponent::MonitorButton::paintButton (juce::Graphics& g, bool s
     g.drawText (label, getLocalBounds(), juce::Justification::centred, false);
 }
 
-void TrackHeaderComponent::VolumeBar::setValue (double newValue, juce::NotificationType nt)
-{
-    const auto clamped = juce::jlimit (rangeMin, rangeMax, newValue);
-
-    if (clamped == value)
-        return;
-
-    value = clamped;
-    repaint();
-
-    if (nt == juce::sendNotification && onValueChange)
-        onValueChange();
-}
-
-void TrackHeaderComponent::VolumeBar::paint (juce::Graphics& g)
-{
-    auto b = getLocalBounds().toFloat();
-    constexpr float corner = DS::volumeBarCornerRadius;
-
-    // Flat dark well.
-    g.setColour (CrateColors::DarkBackground);
-    g.fillRoundedRectangle (b, corner);
-
-    // NeonBlue fill growing left -> right with the value — plain linear
-    // proportion (no juce::Slider skew to account for; this class has none).
-    const auto prop = (rangeMax > rangeMin)
-                         ? juce::jlimit (0.0, 1.0, (value - rangeMin) / (rangeMax - rangeMin))
-                         : 0.0;
-    if (prop > 0.0)
-    {
-        juce::Graphics::ScopedSaveState clip (g);
-        juce::Path well;
-        well.addRoundedRectangle (b, corner);
-        g.reduceClipRegion (well);
-
-        auto fill = b.withWidth (b.getWidth() * (float) prop);
-        g.setColour (CrateColors::NeonBlue.withAlpha (DS::volumeBarFillAlpha));
-        g.fillRect (fill);
-    }
-
-    // Inner Element Strokes directive: crisp 1px solid black rim, same
-    // convention every other Column 3 box now uses.
-    g.setColour (juce::Colours::black);
-    g.drawRoundedRectangle (b.reduced (0.5f), corner, 1.0f);
-
-    // Centred dB readout — white over the fill, still legible over the dark well.
-    g.setColour (juce::Colours::white);
-    g.setFont (juce::FontOptions (CrateDesignSystem::Typography::volumeBarFontSize, juce::Font::bold));
-    g.drawText (juce::String (value, 1) + " dB", getLocalBounds(), juce::Justification::centred);
-}
-
-void TrackHeaderComponent::VolumeBar::mouseDown (const juce::MouseEvent&)
-{
-    valueOnDragStart = value;
-
-    if (onDragStart)
-        onDragStart();
-}
-
-void TrackHeaderComponent::VolumeBar::mouseDrag (const juce::MouseEvent& e)
-{
-    // Horizontal relative drag (matches the fill bar's own left->right visual
-    // metaphor): drag the full width of the box to sweep the full range.
-    // getDistanceFromDragStartX() is JUCE's OWN pixel-delta-since-mouseDown
-    // helper (juce_MouseEvent.h) — using it instead of manually tracking a
-    // start-X member removes any chance of a hand-rolled delta-tracking bug.
-    constexpr float pixelsForFullRange = DS::volumeBarDragPixelsForFullRange;
-    const double delta = (double) e.getDistanceFromDragStartX() / (double) pixelsForFullRange * (rangeMax - rangeMin);
-    setValue (valueOnDragStart + delta, juce::sendNotification);
-}
-
-void TrackHeaderComponent::VolumeBar::mouseUp (const juce::MouseEvent&)
-{
-    if (onDragEnd)
-        onDragEnd();
-}
-
-void TrackHeaderComponent::VolumeBar::mouseDoubleClick (const juce::MouseEvent&)
-{
-    setValue (0.0, juce::sendNotification); // reset to unity gain (0 dB)
-}
-
-void TrackHeaderComponent::PanBar::setValue (double newValue, juce::NotificationType nt)
-{
-    const auto clamped = juce::jlimit (-1.0, 1.0, newValue);
-
-    if (clamped == value)
-        return;
-
-    value = clamped;
-    repaint();
-
-    if (nt == juce::sendNotification && onValueChange)
-        onValueChange();
-}
-
-void TrackHeaderComponent::PanBar::paint (juce::Graphics& g)
-{
-    auto b = getLocalBounds().toFloat();
-    constexpr float corner = DS::volumeBarCornerRadius;
-
-    // Flat dark well — same language as VolumeBar.
-    g.setColour (CrateColors::DarkBackground);
-    g.fillRoundedRectangle (b, corner);
-
-    // NeonBlue fill growing from CENTRE outward toward whichever side the
-    // value leans — the correct bipolar analogue of VolumeBar's left->right
-    // unipolar fill.
-    const auto centreX = b.getCentreX();
-    const auto halfWidth = b.getWidth() * 0.5f;
-    const auto offset = (float) value * halfWidth;
-
-    if (std::abs (offset) > 0.5f)
-    {
-        juce::Graphics::ScopedSaveState clip (g);
-        juce::Path well;
-        well.addRoundedRectangle (b, corner);
-        g.reduceClipRegion (well);
-
-        const auto fill = (offset > 0.0f)
-                              ? juce::Rectangle<float> (centreX, b.getY(), offset, b.getHeight())
-                              : juce::Rectangle<float> (centreX + offset, b.getY(), -offset, b.getHeight());
-        g.setColour (CrateColors::NeonBlue.withAlpha (DS::volumeBarFillAlpha));
-        g.fillRect (fill);
-    }
-
-    // Inner Element Strokes directive: crisp 1px solid black rim, same
-    // convention every other Column 3 box now uses.
-    g.setColour (juce::Colours::black);
-    g.drawRoundedRectangle (b.reduced (0.5f), corner, 1.0f);
-
-    // Centred readout — "C" dead centre, otherwise the percentage toward
-    // whichever side ("50L" / "50R" — PNG Pivot directive's own format).
-    g.setColour (juce::Colours::white);
-    g.setFont (juce::FontOptions (CrateDesignSystem::Typography::volumeBarFontSize, juce::Font::bold));
-
-    const int percent = juce::roundToInt (std::abs (value) * 100.0);
-    const auto text = percent == 0 ? juce::String ("C") : (juce::String (percent) + (value < 0.0 ? "L" : "R"));
-    g.drawText (text, getLocalBounds(), juce::Justification::centred);
-}
-
-void TrackHeaderComponent::PanBar::mouseDown (const juce::MouseEvent&)
-{
-    valueOnDragStart = value;
-
-    if (onDragStart)
-        onDragStart();
-}
-
-void TrackHeaderComponent::PanBar::mouseDrag (const juce::MouseEvent& e)
-{
-    // Same getDistanceFromDragStartX() relative-drag mechanic as VolumeBar —
-    // full drag width sweeps the full bipolar range (2.0, i.e. -1..1).
-    constexpr float pixelsForFullRange = DS::volumeBarDragPixelsForFullRange;
-    const double delta = (double) e.getDistanceFromDragStartX() / (double) pixelsForFullRange * 2.0;
-    setValue (valueOnDragStart + delta, juce::sendNotification);
-}
-
-void TrackHeaderComponent::PanBar::mouseUp (const juce::MouseEvent&)
-{
-    if (onDragEnd)
-        onDragEnd();
-}
-
-void TrackHeaderComponent::PanBar::mouseDoubleClick (const juce::MouseEvent&)
-{
-    setValue (0.0, juce::sendNotification); // reset to centre ("C")
-}
-
 TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, CrateWorkflowManager& workflowToUse)
     : track (trackToControl), workflow (workflowToUse)
 {
+    // Bulletproof Live Mode / Aggressive Caching directive: JUCE's cached-
+    // to-image buffering (detail::StandardCachedComponentImage) tracks a
+    // dirty RectangleList and only re-renders the INVALIDATED sub-rect back
+    // into the cached bitmap on the next paint — not the whole component —
+    // so a child Component repainting itself (a combo's hover state, a
+    // MonitorButton toggle) still only re-bakes its own small rect, and the
+    // level meter's timerCallback() below already calls repaint (meterBounds)
+    // (a scoped sub-rect, not repaint() on the whole component) for the
+    // exact same reason: the 24Hz meter update only re-renders that thin
+    // strip, never the full cached image. This is what makes buffering safe
+    // here even though the meter is drawn straight into this SAME paint()
+    // rather than a separate overlay Component.
+    setBufferedToImage (true);
+
     if (track != nullptr)
     {
         isReturnTrackFlag = TrackUtils::isReturnTrack (*track);

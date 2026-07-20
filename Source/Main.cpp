@@ -1,6 +1,9 @@
 #include <JuceHeader.h>
+#include <tracktion_engine/tracktion_engine.h>
 #include "MainComponent.h"
 #include "UI/TheCrateLookAndFeel.h"
+
+namespace te = tracktion::engine;
 
 class TheCrateStudioApplication : public juce::JUCEApplication
 {
@@ -11,8 +14,20 @@ public:
     const juce::String getApplicationVersion() override    { return ProjectInfo::versionString; }
     bool moreThanOneInstanceAllowed() override              { return false; }
 
-    void initialise (const juce::String&) override
+    void initialise (const juce::String& commandLine) override
     {
+        // Plugin Sandboxing directive: CrateEngineBehaviour::
+        // canScanPluginsOutOfProcess() (CrateWorkflowManager.cpp) opts in to
+        // out-of-process plugin scanning — this is the other half of that
+        // contract (see EngineBehaviour::canScanPluginsOutOfProcess()'s own
+        // doc comment): re-launching with the scan-worker command line MUST
+        // short-circuit straight into the child-process scan helper before
+        // any of our own window/Engine/CrateWorkflowManager construction
+        // runs, or a relaunched scan process would open a second full DAW
+        // window instead of just scanning and exiting.
+        if (te::PluginManager::startChildProcessPluginScan (commandLine))
+            return;
+
         // Must be set before MainWindow constructs — it reads the default LookAndFeel's
         // background colour at construction time.
         juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);

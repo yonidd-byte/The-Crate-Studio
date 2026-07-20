@@ -7,6 +7,8 @@
 #include "FlatGridComboLookAndFeel.h"
 #include "CrateColors.h"
 #include "CrateDesignSystem.h"
+#include "CrateValueBox.h"
+#include "CrateFoldArrow.h"
 #include "TrackUtils.h"
 #include "../CrateWorkflowManager.h"
 
@@ -256,19 +258,10 @@ private:
         juce::String number { "-" };
     };
 
-    // Column 1's fold/collapse arrow — draws a right-pointing triangle when
-    // collapsed, down-pointing when expanded (Cubase/Ableton disclosure glyph).
-    // Reads its state from the owning header via a callback so there's one
-    // source of truth (isCollapsed) rather than a second copy here.
-    class FoldArrow : public juce::Button
-    {
-    public:
-        FoldArrow() : juce::Button ({}) {}
-        std::function<bool()> isExpanded; // supplied by the header
-
-    private:
-        void paintButton (juce::Graphics&, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
-    };
+    // Column 1's fold/collapse arrow — CrateFoldArrow (CrateFoldArrow.h).
+    // Extracted out of this class (was a private nested class here
+    // originally) so ArrangementComponent's MasterHeaderRow can reuse the
+    // identical disclosure-glyph look for Master Track Fold Parity.
 
     // Column 2's monitoring toggle (IN / AUTO / OFF) — one flat box per state,
     // same "no JUCE chrome" language as ToggleBlock/MutePlate. Unlike
@@ -287,71 +280,12 @@ private:
         juce::String label;
     };
 
-    // Column 3's Ableton-style numeric volume drag-box. Deliberately NOT a
-    // juce::Slider: an earlier LinearBar-styled Slider subclass was
-    // unresponsive to drags — juce::Slider's internal mouse handling for bar
-    // styles computes its draggable region via the ACTIVE LookAndFeel's
-    // getSliderLayout() (Slider::Pimpl::mouseDrag's sliderRegionStart/Size),
-    // which this component never set up, leaving drag behaviour entirely at
-    // the mercy of whatever LookAndFeel happens to be inherited. Same root
-    // category of problem UniversalDeviceChainComponent's MiniParamSlider doc
-    // comment already calls out ("simpler on a plain Component than fighting
-    // Slider's own mouse handling") — so this is a plain juce::Component with
-    // its own directly-implemented horizontal relative-drag, matching that
-    // established in-codebase precedent instead of fighting Slider again.
-    // Paints its own flat dark well + CrateColors::NeonBlue fill + centred dB
-    // readout; the DSP binding (onValueChange -> setVolumeDb) is unchanged,
-    // just now driven by this class's own callback instead of juce::Slider's.
-    class VolumeBar : public juce::Component
-    {
-    public:
-        void setRange (double newMin, double newMax)   { rangeMin = newMin; rangeMax = newMax; }
-        void setValue (double newValue, juce::NotificationType);
-        double getValue() const                         { return value; }
-
-        std::function<void()> onDragStart;
-        std::function<void()> onValueChange;
-        std::function<void()> onDragEnd;
-
-        void paint (juce::Graphics&) override;
-        void mouseDown (const juce::MouseEvent&) override;
-        void mouseDrag (const juce::MouseEvent&) override;
-        void mouseUp (const juce::MouseEvent&) override;
-        void mouseDoubleClick (const juce::MouseEvent&) override; // resets to 0 dB (unity)
-
-    private:
-        double rangeMin = -60.0, rangeMax = 6.0;
-        double value = 0.0;
-        double valueOnDragStart = 0.0;
-    };
-
-    // Column 3's Pan control — Ableton Geometry / PNG Pivot directive: a
-    // rotary knob breaks the strict 13px row-height grid Column 3 is now
-    // built from, so Pan is a flat horizontal drag-box here instead (NOT the
-    // pan_knob.png filmstrip MixerStrip/MasterStrip still use — this is
-    // scoped to the Arrangement Track Header only). Same plain-Component
-    // drag mechanics as VolumeBar just above (bipolar -1..1 range, "C" /
-    // "50L" / "50R" readout instead of a dB string).
-    class PanBar : public juce::Component
-    {
-    public:
-        void setValue (double newValue, juce::NotificationType);
-        double getValue() const                         { return value; }
-
-        std::function<void()> onDragStart;
-        std::function<void()> onValueChange;
-        std::function<void()> onDragEnd;
-
-        void paint (juce::Graphics&) override;
-        void mouseDown (const juce::MouseEvent&) override;
-        void mouseDrag (const juce::MouseEvent&) override;
-        void mouseUp (const juce::MouseEvent&) override;
-        void mouseDoubleClick (const juce::MouseEvent&) override; // resets to centre ("C")
-
-    private:
-        double value = 0.0; // -1 (full left) .. +1 (full right), 0 == centre
-        double valueOnDragStart = 0.0;
-    };
+    // Column 3's Ableton-style numeric volume drag-box and Pan control —
+    // CrateVolumeBar/CratePanBar (CrateValueBox.h). Extracted out of this
+    // class (they were private nested classes here originally) so
+    // ArrangementComponent's MasterHeaderRow can reuse the identical
+    // paint()/mouseDrag() code for 100% Column 3 parity between Master and a
+    // standard track, rather than a second hand-maintained copy.
 
     // te::AutomatableParameter::Listener — fires when Volume/Pan change from
     // anywhere other than this header's own slider (MixerStrip's fader/pan knob,
@@ -479,7 +413,7 @@ private:
     MonitorMode monitorMode = MonitorMode::autoMode;
     void setMonitorMode (MonitorMode newMode)   { monitorMode = newMode; repaint(); }
 
-    FoldArrow foldArrow;
+    CrateFoldArrow foldArrow;
     juce::Label nameLabel;
 
     // Column 2: Two-Tier Ableton-style I/O. Category combos pick a routing
@@ -499,8 +433,8 @@ private:
     MutePlate mutePlate; // the track-number plate, doubling as the Mute toggle
     ToggleBlock recordArmButton { "R", recordOnColour };
     ToggleBlock soloButton      { "S", soloOnColour };
-    VolumeBar volumeSlider; // Ableton-style numeric drag-box
-    PanBar panBar; // Ableton Geometry / PNG Pivot directive — flat drag-box, not a rotary knob
+    CrateVolumeBar volumeSlider; // Ableton-style numeric drag-box
+    CratePanBar panBar; // Ableton Geometry / PNG Pivot directive — flat drag-box, not a rotary knob
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TrackHeaderComponent)
 };

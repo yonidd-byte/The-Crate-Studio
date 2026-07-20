@@ -180,15 +180,6 @@ namespace CrateDesignSystem
             // to its column2Height total so nothing gets cut off.
             static constexpr int col2Inset = 2;
 
-            // Column 3 (Mini-Mixer), MasterHeaderRow-only block — Master's own
-            // resized() still uses these three (its blank Solo/Record
-            // placeholder row + real Volume/Pan) since the Ableton Geometry
-            // directive below is scoped to TrackHeaderComponent specifically.
-            static constexpr int col3RowAH  = 24; // Box A/B/C row height (Master only)
-            static constexpr int muteBoxW   = 40; // Master's Volume width (Master only)
-            static constexpr int volumeRowH = 24; // Master only
-            static constexpr int panSize    = 34; // Master only
-
             // Ableton Geometry directive — TrackHeaderComponent's Column 3 is
             // now absolute, hardcoded pixel math (see its own resized()), not
             // a derived/relative layout. These two are the ONLY named
@@ -223,18 +214,8 @@ namespace CrateDesignSystem
             // Column separators / accent stripe / bottom border. Strict
             // Bordered Grid directive: these are opaque 2px black cuts —
             // absolute separation between UI zones, not a felt hairline.
-            // accentStripeW stays 3 for MasterHeaderRow's own selected-accent
-            // stripe (unaffected by this directive, which is scoped to
-            // TrackHeaderComponent — see its own paint()).
             static constexpr int separatorW      = 2;
-            static constexpr int accentStripeW   = 3;
             static constexpr int rowBottomBorderH = 2;
-
-            // Still used by MasterHeaderRow's own hairline dividers (out of
-            // this directive's scope) and nowhere in TrackHeaderComponent any
-            // more — its own strokes are all opaque black now (see paint()
-            // and the ToggleBlock/MutePlate/VolumeBar/PanBar paintButton()s).
-            static constexpr float hairlineAlpha  = 0.3f;
 
             // ToggleBlock / MutePlate / MonitorButton paint() highlight deltas
             static constexpr float pressedBrighten  = 0.15f; // shouldDrawButtonAsDown, all three

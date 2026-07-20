@@ -41,6 +41,29 @@ namespace
             limits.maxPluginsOnTrack = 256; // effectively unlimited for any real mixing session
             return limits;
         }
+
+        // Bulletproof Live Mode / Plugin Sandboxing directive: TE's OOP
+        // support is SCANNING isolation, not full runtime per-plugin process
+        // sandboxing (that would require a much larger out-of-process audio
+        // bridge this open-source engine doesn't ship) — a plugin that
+        // crashes or hangs DURING a scan takes down only the disposable
+        // child scan process, never this app, which is exactly where a rogue
+        // VST3 is most likely to misbehave (first load/enumeration). Requires
+        // the matching PluginManager::startChildProcessPluginScan() early-out
+        // in JUCEApplication::initialise() — see Main.cpp.
+        bool canScanPluginsOutOfProcess() override { return true; }
+
+        // Multi-Core directive: TE's own default already returns every
+        // available core (SystemStats::getNumCpus()) — reserving one for the
+        // message/UI thread instead is the actual live-set-hardening change:
+        // leaves headroom for GUI hit-testing/painting to stay responsive
+        // even when every audio core is saturated by a heavy session,
+        // instead of the audio graph and the UI thread contending for the
+        // very last core.
+        int getNumberOfCPUsToUseForAudio() override
+        {
+            return juce::jmax (1, juce::SystemStats::getNumCpus() - 1);
+        }
     };
 }
 
