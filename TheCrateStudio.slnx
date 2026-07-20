@@ -58,7 +58,11 @@
 		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
 	</Project>
 	<Project Path="TheCrateStudio.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="0cec8902-2b61-3f52-b10b-3ca112f25c5a">
+		<BuildDependency Project="TheCrateStudioAssets.vcxproj"/>
 		<BuildDependency Project="TheCrateStudio_rc_lib.vcxproj"/>
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="TheCrateStudioAssets.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="9956b057-06ce-3e7b-9eb3-9624173f35ca">
 		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
 	</Project>
 	<Project Path="TheCrateStudio_rc_lib.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="39c9cd3a-c65e-3a66-b6a7-806da2ffe9ae">
@@ -85,6 +89,7 @@
 			<BuildDependency Project="modules/tracktion_engine/examples/TestRunner/TestRunner.vcxproj"/>
 			<BuildDependency Project="modules/tracktion_engine/examples/TestRunner/TestRunner_rc_lib.vcxproj"/>
 			<BuildDependency Project="TheCrateStudio.vcxproj"/>
+			<BuildDependency Project="TheCrateStudioAssets.vcxproj"/>
 			<BuildDependency Project="TheCrateStudio_rc_lib.vcxproj"/>
 			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
 			<BuildDependency Project="modules/tracktion_engine/examples/EngineInPluginDemo/juce_lv2_helper.vcxproj"/>

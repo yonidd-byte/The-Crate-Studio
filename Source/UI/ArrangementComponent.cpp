@@ -4,6 +4,8 @@
 #include "ArrangementLayout.h"
 #include "TheCrateLookAndFeel.h"
 #include "CrateColors.h"
+#include "CrateDesignSystem.h"
+#include "FlatGridComboLookAndFeel.h"
 #include "TrackUtils.h"
 
 using namespace CrateArrangement;
@@ -11,6 +13,22 @@ using namespace CrateArrangement;
 namespace
 {
     using LAF = TheCrateLookAndFeel;
+
+    // Bus/Return Default Collapsed State directive: same key
+    // TrackHeaderComponent/CrateWorkflowManager use to seed/persist the fold
+    // micro-state — duplicated here too (rather than a shared header) so
+    // TrackRow (a separate Component tree from the header — see its own doc
+    // comment) can seed its OWN initial row height correctly for a track
+    // that's already folded the moment it's created, without needing to
+    // reach across to the header instance for it.
+    const juce::Identifier foldedPropertyID ("crateFolded");
+
+    // Content-Driven Dynamic Height directive: same keys TrackHeaderComponent
+    // persists — TrackRow needs them too (it has no live header instance to
+    // ask) to compute the IDENTICAL height via TrackHeaderComponent::
+    // computePreferredHeight().
+    const juce::Identifier inputCategoryPropertyID ("crateInputCategory");
+    const juce::Identifier outputCategoryPropertyID ("crateOutputCategory");
 
     // Zone 3 grid spec: bars slightly brighter, beats very subtle — expressed as
     // true opacity over the lane fill rather than two similarly-dark flat colours,
@@ -301,6 +319,23 @@ public:
     TrackRow (te::Edit& e, te::AudioTrack::Ptr t)
         : edit (e), track (t)
     {
+        // Content-Driven Dynamic Height directive: seed this row's own height
+        // from the SAME persisted properties TrackHeaderComponent reads —
+        // TrackRow is a separate Component tree with no live header instance
+        // to ask, so TrackHeaderComponent::computePreferredHeight() (a static
+        // method taking just these facts) is the ONE shared authority both
+        // sides compute from, rather than two independent formulas that could
+        // silently drift apart.
+        if (track != nullptr)
+        {
+            const bool isReturn = TrackUtils::isReturnTrack (*track);
+            const bool isFolded = (bool) track->state.getProperty (foldedPropertyID, false);
+            const int inputCategoryId  = (int) track->state.getProperty (inputCategoryPropertyID, 1);
+            const int outputCategoryId = (int) track->state.getProperty (outputCategoryPropertyID, 1);
+
+            rowHeight = TrackHeaderComponent::computePreferredHeight (isReturn, isFolded, inputCategoryId, outputCategoryId);
+        }
+
         rebuildClips();
 
         // Clip add/remove (drag-and-drop file import today; clip delete/paste
@@ -323,21 +358,25 @@ public:
     // In-Track Automation Overlay (V2.0 UI/UX Manifesto section 4, "The
     // Overlay Method"): automation no longer changes row height — the curve
     // draws ON TOP of the clip lane (see AutomationLaneComponent, sized to this
-    // row's full bounds). Height is now governed solely by the Cubase/Ableton
-    // FOLD state: collapsedLaneHeight when folded, clipLaneHeight when expanded.
-    int getRowHeight() const           { return collapsed ? collapsedLaneHeight : clipLaneHeight; }
+    // row's full bounds). Content-Driven Dynamic Height directive: height is
+    // now governed by whatever TrackHeaderComponent::computePreferredHeight()
+    // says the matching header currently needs (fold state, return-ness,
+    // input/output category) — see rowHeight's own doc comment.
+    int getRowHeight() const           { return rowHeight; }
 
-    /** Bridged from the header's fold arrow (a separate Component tree — see
-        TrackHeaderColumn) — folds/unfolds this lane row. Height changes, so this
-        fires onRowHeightChanged so the whole list relayouts and the header
-        column mirrors the new heights. The automation overlay (if visible) and
-        clips re-lay against the new row height, preserving alignment. */
-    void setCollapsed (bool shouldBeCollapsed)
+    /** Bridged from the header (a separate Component tree — see
+        TrackHeaderColumn) whenever ANYTHING that changes its preferred
+        height changes — fold toggle, or an Input/Output Category combo
+        changing which rows are visible. Fires onRowHeightChanged so the
+        whole list relayouts and the header column mirrors the new heights.
+        The automation overlay (if visible) and clips re-lay against the new
+        row height, preserving alignment. */
+    void setRowHeight (int newHeight)
     {
-        if (collapsed == shouldBeCollapsed)
+        if (rowHeight == newHeight)
             return;
 
-        collapsed = shouldBeCollapsed;
+        rowHeight = newHeight;
 
         if (onRowHeightChanged)
             onRowHeightChanged();
@@ -524,7 +563,7 @@ private:
     std::unique_ptr<AutomationLaneComponent> autoLane;
     std::vector<std::unique_ptr<ClipComponent>> clipComponents;
     bool automationVisible = false;
-    bool collapsed = false;
+    int rowHeight = clipLaneHeight; // safe fallback for a null track; the constructor always computes the real value otherwise
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TrackRow)
 };
@@ -660,13 +699,15 @@ public:
                 row->setAutomationVisible (visible);
     }
 
-    /** Bridged from TrackHeaderColumn's fold arrow — folds/unfolds the matching
-        lane row (which fires onRowHeightChanged -> relayout -> header re-sync). */
-    void setTrackCollapsed (te::AudioTrack* track, bool collapsed)
+    /** Bridged from TrackHeaderColumn — pushes the header's OWN
+        getPreferredHeight() onto the matching lane row (which fires
+        onRowHeightChanged -> relayout -> header re-sync) whenever fold OR an
+        Input/Output Category combo changes which rows the header needs. */
+    void setTrackRowHeight (te::AudioTrack* track, int newHeight)
     {
         for (auto& row : rows)
             if (row->getTrack() == track)
-                row->setCollapsed (collapsed);
+                row->setRowHeight (newHeight);
     }
 
     void setMinHeight (int h)   { minHeight = h; }
@@ -869,18 +910,18 @@ public:
         positionRows();
     }
 
-    /** Bridged from ReturnHeaderDock's fold arrow (header side) — finds the
-        matching row by track and folds/unfolds it, mirroring
-        TrackListContent::setTrackCollapsed()'s identical job for regular
-        tracks. Firing this changes getTotalHeight(), so the caller
+    /** Bridged from ReturnHeaderDock (header side) — finds the matching row
+        by track and pushes the header's own getPreferredHeight() onto it,
+        mirroring TrackListContent::setTrackRowHeight()'s identical job for
+        regular tracks. Firing this changes getTotalHeight(), so the caller
         (ArrangementComponent) must re-run its own resized() afterward — this
         class has no scroll offset / viewport to keep in sync, so unlike the
         regular list there's no relayoutFromHeights() indirection needed here. */
-    void setTrackCollapsed (te::AudioTrack* track, bool collapsed)
+    void setTrackRowHeight (te::AudioTrack* track, int newHeight)
     {
         for (auto& row : rows)
             if (row->getTrack() == track)
-                row->setCollapsed (collapsed);
+                row->setRowHeight (newHeight);
     }
 
     /** Total height every current row needs stacked — this IS the dock's
@@ -943,10 +984,12 @@ public:
     std::function<void (te::AudioTrack*)> onTrackSelected;
     std::function<void (te::AudioTrack*)> onDeleteTrackRequested;
 
-    /** Bridged to TrackListContent::setTrackCollapsed() by ArrangementComponent —
-        the fold arrow lives HERE (header side); the height it controls lives on
-        the lane row (content side). */
-    std::function<void (te::AudioTrack*, bool)> onFoldToggled;
+    /** Bridged to TrackListContent::setTrackRowHeight() by ArrangementComponent —
+        the fold arrow / Input-Output Category combos live HERE (header side);
+        the height they control lives on the lane row (content side). Carries
+        the header's own getPreferredHeight() (Content-Driven Dynamic Height
+        directive), not just a fold bool. */
+    std::function<void (te::AudioTrack*, int)> onFoldToggled;
 
     // Hybrid Bus/Return Architecture: `tracksToShow` is the REGULAR subset
     // only, matching TrackListContent::rebuild()'s own list 1:1 — see
@@ -964,7 +1007,7 @@ public:
             header->onFoldToggle = [this, t, ptr = header.get()]
             {
                 if (onFoldToggled)
-                    onFoldToggled (t, ptr->getCollapsed());
+                    onFoldToggled (t, ptr->getPreferredHeight());
             };
 
             addAndMakeVisible (*header);
@@ -988,7 +1031,7 @@ public:
 
         for (size_t i = 0; i < headers.size(); ++i)
         {
-            const int h = (i < rowHeights.size()) ? rowHeights[i] : clipLaneHeight;
+            const int h = (i < rowHeights.size()) ? rowHeights[i] : headers[i]->getPreferredHeight();
             headers[i]->setBounds (0, y - verticalOffset, getWidth(), h);
             y += h;
         }
@@ -1050,10 +1093,12 @@ public:
     std::function<void (te::AudioTrack*)> onTrackSelected;
     std::function<void (te::AudioTrack*)> onDeleteTrackRequested;
 
-    /** Bridged to ReturnLaneDock::setTrackCollapsed() by ArrangementComponent
+    /** Bridged to ReturnLaneDock::setTrackRowHeight() by ArrangementComponent
         — same header-owns-the-arrow/lane-owns-the-height split
-        TrackHeaderColumn::onFoldToggled already uses for regular tracks. */
-    std::function<void (te::AudioTrack*, bool)> onFoldToggled;
+        TrackHeaderColumn::onFoldToggled already uses for regular tracks. Now
+        carries the header's own getPreferredHeight() (Content-Driven Dynamic
+        Height directive), not just a fold bool. */
+    std::function<void (te::AudioTrack*, int)> onFoldToggled;
 
     void rebuild (const std::vector<te::AudioTrack*>& returnTracks)
     {
@@ -1068,7 +1113,7 @@ public:
             header->onFoldToggle = [this, t, ptr = header.get()]
             {
                 if (onFoldToggled)
-                    onFoldToggled (t, ptr->getCollapsed());
+                    onFoldToggled (t, ptr->getPreferredHeight());
             };
 
             addAndMakeVisible (*header);
@@ -1087,16 +1132,16 @@ public:
 
     /** Total height every current header needs stacked — MUST always equal
         ReturnLaneDock::getTotalHeight() (same tracks, same order); the two
-        fold states (this header's own isCollapsed vs. the matching TrackRow's
-        collapsed) are two independent booleans kept in sync purely via the
-        onFoldToggled bridge, same proven pattern TrackHeaderColumn/
-        TrackListContent already rely on for regular tracks. */
+        sides (this header's own getPreferredHeight() vs. the matching
+        TrackRow's rowHeight) are kept in sync purely via the onFoldToggled
+        bridge, same proven pattern TrackHeaderColumn/TrackListContent
+        already rely on for regular tracks. */
     int getTotalHeight() const
     {
         int total = 0;
 
         for (auto& h : headers)
-            total += h->getCollapsed() ? collapsedLaneHeight : clipLaneHeight;
+            total += h->getPreferredHeight();
 
         return total;
     }
@@ -1122,7 +1167,7 @@ private:
 
         for (auto& h : headers)
         {
-            const int rowH = h->getCollapsed() ? collapsedLaneHeight : clipLaneHeight;
+            const int rowH = h->getPreferredHeight();
             h->setBounds (0, y, getWidth(), rowH);
             y += rowH;
         }
@@ -1195,6 +1240,36 @@ public:
         nameLabel.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         nameLabel.setInterceptsMouseClicks (false, false);
 
+        // Master Track Dynamics directive: EXACTLY two routing dropdowns —
+        // "Cue Out" (top) and "Master Out" (bottom) — no Input/Monitor rows
+        // at all (Master has no input concept). Same disclosed-cosmetic
+        // treatment every other routing combo in this app already uses (no
+        // real cue-bus model exists in this engine) — Master Out's item at
+        // least reflects the real destination name, same as a regular
+        // track's Output Specific combo does for its own "Master" item.
+        const auto styleMasterCombo = [this] (juce::ComboBox& c)
+        {
+            c.setColour (juce::ComboBox::backgroundColourId, CrateColors::DarkBackground);
+            c.setColour (juce::ComboBox::outlineColourId,    juce::Colours::transparentBlack);
+            c.setColour (juce::ComboBox::textColourId,       CrateColors::BrandGray);
+            c.setColour (juce::ComboBox::arrowColourId,      CrateColors::NeonBlue);
+            c.setColour (juce::ComboBox::focusedOutlineColourId, juce::Colours::transparentBlack);
+            c.setJustificationType (juce::Justification::centredLeft);
+            c.setLookAndFeel (&flatGridLookAndFeel);
+        };
+
+        addAndMakeVisible (cueOutCombo);
+        styleMasterCombo (cueOutCombo);
+        cueOutCombo.addItem ("1/2", 1);
+        cueOutCombo.setSelectedId (1, juce::dontSendNotification);
+        cueOutCombo.setTooltip ("Cue routing isn't wired to the engine yet - display only.");
+
+        addAndMakeVisible (masterOutCombo);
+        styleMasterCombo (masterOutCombo);
+        masterOutCombo.addItem ("Stereo Out", 1); // matches MasterStrip's own outputSlot label
+        masterOutCombo.setSelectedId (1, juce::dontSendNotification);
+        masterOutCombo.setTooltip ("Master's real, fixed output destination.");
+
         // REAL Volume + Pan — bound directly to edit.getMasterVolumePlugin(),
         // the same object MasterStrip's own Mixer controls use.
         volumePlugin = edit.getMasterVolumePlugin();
@@ -1245,6 +1320,9 @@ public:
     {
         stopTimer();
 
+        cueOutCombo.setLookAndFeel (nullptr);
+        masterOutCombo.setLookAndFeel (nullptr);
+
         if (volumePlugin != nullptr)
         {
             volumePlugin->volParam->removeListener (this);
@@ -1292,25 +1370,43 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        namespace DS = CrateDesignSystem::Metrics::TrackHeader;
+
         const auto w = getWidth();
         const auto h = getHeight();
 
-        // True Master Header Container (Lead Architect correction): this is
-        // now a LITERAL copy of TrackHeaderComponent::paint()'s container
-        // styling — same exact fill colours (CrateColors::LightBackground/
-        // DarkBackground — copied verbatim), same left accent stripe
-        // convention. Master is DELIBERATELY never track-coloured (unlike
-        // TrackHeaderComponent, which fills with track->getColour()): it is the
-        // permanent visual anchor of the arrangement, locked to the brand's
-        // dark-void grey and it never opens a colour picker.
+        // Master Track Parity directive: same base fill TrackHeaderComponent
+        // uses for its whole panel — Master still never shows a track colour
+        // (no Column 1 identity fill override), but the row is now split into
+        // the SAME 3-column grid via the divider lines below, so its column
+        // edges line up pixel-for-pixel with every real track above it.
         g.setColour (selected ? CrateColors::LightBackground : CrateColors::DarkBackground);
         g.fillRect (0, 0, w, h);
 
         if (selected)
         {
             g.setColour (LAF::accent);
-            g.fillRect (0, 0, 3, h);
+            g.fillRect (0, 0, DS::accentStripeW, h);
         }
+
+        // ---- Column 3: empty/disabled Solo + Record placeholder ------------
+        // No Solo/Record concept exists for Master — an empty flat slot at
+        // the same grid row a regular track's Solo/Record row occupies, not
+        // a hole in the layout. Strict flat block + 1px border, no rounded
+        // corners/gradients, matching the Strict I/O Grid directive's look.
+        {
+            const juce::Rectangle<int> slot (DS::column2Right, 0, w - DS::column2Right, DS::col3RowAH);
+            g.setColour (CrateColors::DarkBackground.darker (0.3f));
+            g.fillRect (slot);
+            g.setColour (CrateColors::BrandGray.withAlpha (0.35f));
+            g.drawRect (slot, 1);
+        }
+
+        // Quiet Hairlines directive — column separators are low-alpha black
+        // (felt, not seen), same treatment TrackHeaderComponent's own grid uses.
+        g.setColour (juce::Colours::black.withAlpha (DS::hairlineAlpha));
+        g.fillRect (DS::column1Right, 0, DS::separatorW, h);
+        g.fillRect (DS::column2Right, 0, DS::separatorW, h);
 
         // Live level meter fill — drawn directly (not a child Slider/Component)
         // in the reserved meterBounds computed by resized(), same "flat fill,
@@ -1344,36 +1440,40 @@ public:
         // so it explicitly gets BOTH top and bottom lines here, making it read
         // as a complete, rigid container on its own, with a clear boundary
         // for where those future lanes will begin.
-        g.setColour (LAF::background);
+        // Quiet Hairlines directive: low-alpha black always reads as a subtle
+        // seam regardless of what's underneath — it can never vanish against
+        // its own background the way a fixed opaque colour equal to that
+        // background could (the historical "Giant Blob" bug).
+        g.setColour (juce::Colours::black.withAlpha (DS::hairlineAlpha));
         g.drawHorizontalLine (0, 0.0f, (float) w);              // top
         g.drawVerticalLine (w - 1, 0.0f, (float) h);            // right (matches TrackHeaderComponent)
-
-        // "Giant Blob" contrast fix (same as TrackHeaderComponent::paint()):
-        // LAF::background == this row's own unselected fill, so the bottom
-        // line vanished against it when Master wasn't selected. Literal
-        // near-black instead.
-        g.setColour (juce::Colours::black);
         g.fillRect (0, h - 1, w, 1);                            // bottom
     }
 
     void resized() override
     {
-        // Master Arrangement UI Overhaul: clean minimal stack — Name, Volume,
-        // Pan, Meter — matching the same proportions Column 3's compact
-        // cluster uses on regular tracks (mutePlate/volH/panSize), not the
-        // old I/O-row/button-row structural clone.
-        auto header = getLocalBounds().reduced (8, 6);
+        namespace DS = CrateDesignSystem::Metrics::TrackHeader;
 
-        nameLabel.setBounds (header.removeFromTop (18));
-        header.removeFromTop (3);
+        // Master Track Dynamics directive: Column 1 (name) and Column 3
+        // (Volume/Pan/Meter) land on the same absolute positions a regular
+        // track's identity/mini-mixer controls do; Column 2 now hosts the
+        // two REAL Cue Out / Master Out dropdowns instead of placeholder
+        // slots. Master's own outer height stays the fixed clipLaneHeight
+        // ArrangementComponent::resized() already docks it to (unlike
+        // regular/return tracks, Master never folds), so these are literal
+        // pixel positions within that fixed height, not a dynamic stack.
+        nameLabel.setBounds (DS::identityPad, DS::identityPad, DS::column1Right - DS::identityPad * 2, getHeight() - DS::identityPad * 2);
 
-        volumeSlider.setBounds (header.removeFromTop (15));
-        header.removeFromTop (3);
+        cueOutCombo.setBounds (DS::column1Right, 0, DS::column2Right - DS::column1Right, DS::rowH);
+        masterOutCombo.setBounds (DS::column1Right, DS::rowH, DS::column2Right - DS::column1Right, DS::rowH);
 
-        panKnob.setBounds (header.removeFromTop (26).withSizeKeepingCentre (26, 26));
-        header.removeFromTop (3);
+        auto col3 = juce::Rectangle<int> (DS::column2Right, 0, getWidth() - DS::column2Right, getHeight());
+        col3.removeFromTop (DS::col3RowAH); // blank — no Solo/Record on Master, see paint()
+        volumeSlider.setBounds (col3.removeFromTop (DS::volumeRowH));
+        panKnob.setBounds (col3.removeFromTop (DS::panSize).withSizeKeepingCentre (DS::panSize, DS::panSize));
 
-        meterBounds = header.removeFromTop (10).toFloat();
+        constexpr int meterStripW = 6;
+        meterBounds = getLocalBounds().removeFromRight (meterStripW + DS::identityPad).reduced (0, DS::identityPad).toFloat();
     }
 
 private:
@@ -1428,6 +1528,8 @@ private:
     float meterLevelDb = -60.0f; // -INF floor — real level once timerCallback() starts polling
 
     juce::Label nameLabel; // also the Mute toggle — see mouseDown()/applyMuteStateToNameLabel()
+    juce::ComboBox cueOutCombo, masterOutCombo; // Master Track Dynamics directive — Column 2's two real routing dropdowns
+    FlatGridComboLookAndFeel flatGridLookAndFeel; // Strict I/O Grid directive — same flat chrome TrackHeaderComponent's combos use
     juce::Slider volumeSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::Slider panKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox };
     juce::Rectangle<float> meterBounds; // computed in resized(), read by paint()
@@ -1523,9 +1625,9 @@ ArrangementComponent::ArrangementComponent (te::Edit& editToShow, CrateWorkflowM
     // setTrackAutomationVisible() and the whole overlay-rendering path are
     // untouched and still fully functional — just unreachable from any control
     // until a global automation-view toggle or context-menu replaces this.
-    headerColumn->onFoldToggled = [this] (te::AudioTrack* t, bool collapsed)
+    headerColumn->onFoldToggled = [this] (te::AudioTrack* t, int newHeight)
     {
-        content->setTrackCollapsed (t, collapsed);
+        content->setTrackRowHeight (t, newHeight);
     };
     addAndMakeVisible (*headerColumn);
 
@@ -1551,9 +1653,9 @@ ArrangementComponent::ArrangementComponent (te::Edit& editToShow, CrateWorkflowM
     // viewport, so nothing else absorbs the size change) — re-running the
     // top-level resized() is what gives Master/headerColumn/viewport their
     // correct remaining space afterward.
-    returnHeaderDock->onFoldToggled = [this] (te::AudioTrack* t, bool collapsed)
+    returnHeaderDock->onFoldToggled = [this] (te::AudioTrack* t, int newHeight)
     {
-        returnLaneDock->setTrackCollapsed (t, collapsed);
+        returnLaneDock->setTrackRowHeight (t, newHeight);
         resized();
     };
     addAndMakeVisible (*returnHeaderDock);
@@ -1604,6 +1706,14 @@ void ArrangementComponent::addTrack (bool asMidiTrack)
         const int number = te::getAudioTracks (edit).size();
         newTrack->setName ((asMidiTrack ? "MIDI " : "Audio ") + juce::String (number));
         newTrack->getOutput().setOutputToDefaultDevice (false);
+
+        // Fused Identity Block directive (Engine Fix): every new track gets a
+        // real colour immediately — te::Track defaults to transparent, which
+        // used to read as a flat, uncoloured grey slab in Column 1. Soft
+        // Pastel Auto-Colours directive: low saturation (0.3-0.5), high
+        // brightness (0.8-0.9) — a calm studio-label look (soft cyan, pale
+        // yellow, muted brown), not harsh fully-saturated neon.
+        newTrack->setColour (juce::Colour::fromHSV (juce::Random::getSystemRandom().nextFloat(), 0.35f, 0.85f, 1.0f));
 
         // TE has no separate MIDI-track type — a MIDI track is an AudioTrack with an
         // instrument. Seed the MIDI variant with FourOsc so it makes sound.

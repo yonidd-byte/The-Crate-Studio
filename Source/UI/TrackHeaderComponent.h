@@ -4,7 +4,7 @@
 #include <tracktion_engine/tracktion_engine.h>
 
 #include "TheCrateLookAndFeel.h"
-#include "CrateMixerLookAndFeel.h"
+#include "FlatGridComboLookAndFeel.h"
 #include "CrateColors.h"
 #include "CrateDesignSystem.h"
 #include "TrackUtils.h"
@@ -17,71 +17,69 @@ namespace te = tracktion::engine;
     0.3) — Ableton's structural efficiency + Logic/SSL tactile controls + Cubase
     micro-states + Pro Tools routing discipline. A strict 3-column layout:
 
-      Column 1 (Identity):        fold/collapse arrow + the editable track name,
-                                  both sitting directly on top of a FULL solid
-                                  fill of the track's own colour (Ableton style —
-                                  not a translucent tint over the whole header,
-                                  just this one column, opaque). nameLabel's text
-                                  colour switches white/black per-track based on
-                                  that fill's perceived brightness (see
-                                  refreshNameLabelContrast()) so it's always
-                                  readable regardless of how light or dark the
-                                  track's colour is.
+      Column 1 (Identity):        THE FUSED IDENTITY BLOCK — fold/collapse
+                                  arrow, the editable track name, AND the
+                                  track-number Mute Plate all sit directly on
+                                  top of a FULL, opaque, full-HEIGHT fill of
+                                  the track's own colour (Ableton style — not
+                                  a translucent tint, this one column, solid).
+                                  Both the name and the number switch their
+                                  text colour to trackColor.contrasting() so
+                                  they stay readable regardless of how light
+                                  or dark the track's colour is.
       Column 2 (Routing):         Two-Tier Ableton-style I/O (Hybrid Bus/Return
                                   Architecture directive) — Input Category /
                                   Input Specific combos, an IN/AUTO/OFF
                                   monitoring toggle, then Output Category /
-                                  Output Specific combos, 5 rows tiling the
-                                  column's full height with zero dead space.
+                                  Output Specific combos. CONTENT-DRIVEN
+                                  DYNAMIC HEIGHT: each is its own row, and a
+                                  row that doesn't apply (Input Specific +
+                                  the monitor triad when Input Category is
+                                  "No Input"; Output Specific when Output
+                                  Category is "Master") is not just hidden —
+                                  it's REMOVED from the stack, and everything
+                                  below it shifts up, shrinking the track's
+                                  total height (see computePreferredHeight()).
                                   Flat/dark, zero bevel, display-only (no real
                                   device enumeration or hardware monitoring
                                   exists in this engine — see the constructor's
                                   own doc comment for exactly what's real vs.
                                   cosmetic). HIDDEN entirely when collapsed.
-                                  (The automation-overlay toggle and the
-                                  delete-track button that used to live here
-                                  have been removed — see their own notes below.)
-      Column 3 (Mini-Mixer):      a COMPACT cluster grouped to the LEFT of the
-                                  column (deliberately not spread to fill it —
-                                  the remaining right-hand space is reserved,
-                                  currently-unused dead space for a future Sends
-                                  UI): the Mute Plate (the track-number plate IS
-                                  the mute toggle — lit CrateColors::NeonBlue
-                                  when audible, dim CrateColors::DarkBackground
-                                  when muted), Solo (SoloYellow) + Record
-                                  (RecordCrimson) stacked vertically right next
-                                  to it, then a Volume-over-Pan sub-stack (the
-                                  Ableton-style numeric drag-box on top, the
-                                  tactile Pan knob — a rotary juce::Slider
-                                  rendered by CrateMixerLookAndFeel's
-                                  pan_knob.png filmstrip, same premium bipolar
-                                  feel as the Mixer's — below it). A slim
-                                  VERTICAL LED meter runs down the far-right
-                                  edge of the whole header (outside all 3
-                                  columns).
+      Column 3 (Mini-Mixer):      Ableton Geometry directive — ABSOLUTE,
+                                  hardcoded pixel math (see resized()), not a
+                                  derived/relative layout: Box A (Mute Plate/
+                                  track number) + Box B (Solo) + Box C (Record,
+                                  hidden with the same "No Input" rule Column 2
+                                  uses) flush in row 1; Volume directly under
+                                  Box A at the same width in row 2; Pan — a
+                                  flat horizontal drag-box (PNG Pivot directive:
+                                  NOT the pan_knob.png rotary MixerStrip/
+                                  MasterStrip still use — a knob breaks this
+                                  column's strict row-height grid) — beside
+                                  Volume in row 2. This column's content is
+                                  FIXED regardless of track state, so it's the
+                                  floor under Column 2's dynamic range (see
+                                  CrateDesignSystem::Metrics::TrackHeader::
+                                  column3FixedHeight). A slim VERTICAL LED
+                                  meter is right-aligned within Column 3's own
+                                  bounds, with a permanent margin so it never
+                                  touches the header's absolute right edge.
 
-    A 1px vertical separator (CrateColors::DarkBackground.darker()) is drawn at
-    the Column 1/2 and Column 2/3 boundaries so the 3-column grid reads as
-    strictly segmented (Ableton-style), not bleeding together.
+    Quiet hairline separators (low-alpha black, "felt not seen" — see
+    CrateDesignSystem::Metrics::TrackHeader::hairlineAlpha) are drawn at the
+    Column 1/2 and Column 2/3 boundaries so the 3-column grid reads as
+    segmented without the harsh, high-contrast ruled-table look an earlier
+    pass over-corrected into.
 
-    This is a deliberate FLAT, structural-grid-first pass — the Lead Architect
-    asked for exact geometry/layout/colour-fill mechanics now, with premium
-    SSL/micro-depth styling (drop shadows, textures, bevels) explicitly
-    deferred to a later pass. Nothing here should be read as the final visual
-    treatment.
-
-    EXACT HARDCODED GEOMETRY (Lead Architect directive — dynamic
-    removeFromLeft()/withSizeKeepingCentre() flexbox-style math produced a
-    scattered, broken layout, so layoutExpanded() below is now literal
-    juce::Rectangle constants for a 300x90 header, not derived math): Column 1
-    is x=[0,90), Column 2 is x=[90,180), Column 3 is x=[180,300) with every
-    control's bounds a fixed number. x=[282,300) is deliberately empty — no
-    control, no meter — reserved for a future Sends UI; the far-right vertical
-    LED meter this class used to draw is temporarily NOT painted (meterBounds
-    stays empty) so it doesn't eat into that reserved strip. The collapsed
-    micro-state (layoutCollapsed()) is UNCHANGED — this hardcoding is scoped
-    to the expanded 90px state only, per the directive's own "300x90 header
-    area" framing.
+    CONTENT-DRIVEN DYNAMIC HEIGHT (graduated from the earlier "EXACT
+    HARDCODED 300x90" directive, which was a deliberate stabilization step,
+    not the final architecture): Column 1/2's x-boundaries (0/90/180/300)
+    stay fixed — only the HEIGHT flexes now, computed by
+    computePreferredHeight() from exactly which rows the CURRENT state needs.
+    layoutExpanded() lays out top-down against whatever height its caller
+    already sized this component to (see getPreferredHeight()'s own doc
+    comment on why the row/lane OWNER, not this class, must call that first).
+    The collapsed micro-state (layoutCollapsed()) is separate and unaffected.
 
     Cubase/Ableton FOLD (micro-state): the fold arrow collapses this row to a
     single sleek strip (collapsedLaneHeight) — Column 2, the pan knob, and the
@@ -146,6 +144,16 @@ public:
     ~TrackHeaderComponent() override;
 
     void paint (juce::Graphics&) override;
+
+    // Stroke Occlusion Fix directive: the 2px global grid strokes (column
+    // separators, top/bottom/right borders) live here, NOT in paint() — JUCE
+    // paints child components (Column 2's combos/buttons) strictly AFTER the
+    // parent's own paint() but BEFORE paintOverChildren(), so any of those
+    // strokes drawn in paint() that overlapped a child's bounds got silently
+    // painted over the instant that child rendered itself. Drawing them here
+    // instead guarantees they act as a hardware "grill" on top of everything.
+    void paintOverChildren (juce::Graphics&) override;
+
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
 
@@ -166,9 +174,13 @@ public:
 
     // Called when the header is clicked (track should become the selected track).
     std::function<void()> onSelect;
-    // Called when the fold/collapse arrow is toggled; query getCollapsed(). The
-    // receiver (TrackHeaderColumn -> TrackListContent) mirrors the new collapsed
-    // state onto the matching lane row so the row's height changes with it.
+    // Content-Driven Dynamic Height directive: fires whenever ANYTHING that
+    // feeds getPreferredHeight() changes — the fold arrow (query
+    // getCollapsed()), OR the Input/Output Category combos (a row
+    // appeared/disappeared). The receiver (TrackHeaderColumn/ReturnHeaderDock
+    // -> TrackListContent/ReturnLaneDock) reads getPreferredHeight() and
+    // pushes it onto the matching lane row so the row's height always tracks
+    // whatever this header currently needs, not just its fold state.
     std::function<void()> onFoldToggle;
     // Called when Delete/Backspace is pressed while this header has focus.
     // Fires onSelect first (so the receiver's "delete the selected track" logic
@@ -177,6 +189,20 @@ public:
     std::function<void()> onDeleteRequested;
 
     bool getCollapsed() const           { return isCollapsed; }
+
+    // Content-Driven Dynamic Height directive: the row/lane owner (TrackRow/
+    // TrackHeaderColumn in ArrangementComponent.cpp) queries this to size
+    // BOTH this header and its matching clip-lane row — the two are separate
+    // Component trees, so this must be the ONE authority both read, not
+    // something each recomputes independently and risks disagreeing on.
+    int getPreferredHeight() const;
+
+    // Static overload so ArrangementComponent's TrackRow (which has no live
+    // header instance to ask) can compute the IDENTICAL height from just the
+    // facts persisted on the track's own state (isCollapsed/isReturnTrack/
+    // input+output category ids — see the .cpp's persisted property ids).
+    static int computePreferredHeight (bool isReturnTrack, bool isCollapsedState,
+                                        int inputCategoryId, int outputCategoryId);
 
 private:
     // Global Color Centralization: role "on" colours now read straight from
@@ -214,11 +240,11 @@ private:
         float fontSize = CrateDesignSystem::Typography::toggleGlyphFontSize;
     };
 
-    // Column 3's Mute Plate — the track-number plate IS the Mute toggle
-    // (Ableton-style, same paradigm MixerStrip's name plate already uses).
-    // Toggle state == "is muted": lit CrateColors::NeonBlue when audible
-    // (off/unmuted), dim CrateColors::DarkBackground when muted. Shows the
-    // 1-based track number as its glyph.
+    // Column 3's Box A: the Mute Plate — the track-number plate IS the Mute
+    // toggle (Ableton-style, same paradigm MixerStrip's name plate already
+    // uses). Toggle state == "is muted": lit CrateColors::NeonBlue when
+    // audible (off/unmuted), dim CrateColors::DarkBackground when muted.
+    // Shows the 1-based track number as its glyph.
     class MutePlate : public juce::Button
     {
     public:
@@ -299,6 +325,34 @@ private:
         double valueOnDragStart = 0.0;
     };
 
+    // Column 3's Pan control — Ableton Geometry / PNG Pivot directive: a
+    // rotary knob breaks the strict 13px row-height grid Column 3 is now
+    // built from, so Pan is a flat horizontal drag-box here instead (NOT the
+    // pan_knob.png filmstrip MixerStrip/MasterStrip still use — this is
+    // scoped to the Arrangement Track Header only). Same plain-Component
+    // drag mechanics as VolumeBar just above (bipolar -1..1 range, "C" /
+    // "50L" / "50R" readout instead of a dB string).
+    class PanBar : public juce::Component
+    {
+    public:
+        void setValue (double newValue, juce::NotificationType);
+        double getValue() const                         { return value; }
+
+        std::function<void()> onDragStart;
+        std::function<void()> onValueChange;
+        std::function<void()> onDragEnd;
+
+        void paint (juce::Graphics&) override;
+        void mouseDown (const juce::MouseEvent&) override;
+        void mouseDrag (const juce::MouseEvent&) override;
+        void mouseUp (const juce::MouseEvent&) override;
+        void mouseDoubleClick (const juce::MouseEvent&) override; // resets to centre ("C")
+
+    private:
+        double value = 0.0; // -1 (full left) .. +1 (full right), 0 == centre
+        double valueOnDragStart = 0.0;
+    };
+
     // te::AutomatableParameter::Listener — fires when Volume/Pan change from
     // anywhere other than this header's own slider (MixerStrip's fader/pan knob,
     // automation playback, a script).
@@ -316,12 +370,17 @@ private:
     void refreshPanFromEngine();
     void refreshToggleStatesFromEngine();
 
-    // Column 1 is filled SOLID with the track's colour (or a neutral fallback
-    // if none is set) — nameLabel's text colour must switch to black or white
-    // depending on that fill's brightness to stay readable. Called once at
-    // construction and again whenever the track's colour changes
-    // (valueTreePropertyChanged's te::IDs::colour branch).
-    void refreshNameLabelContrast();
+    // Fused Identity Block directive: Column 1 is filled SOLID with the
+    // track's colour (dimmed if muted) — the name label AND the track-number
+    // Mute Plate both need their text colour switched to
+    // trackColor.contrasting() to stay readable. getIdentityFillColour() is
+    // the ONE place that computes the effective fill (return/master grey
+    // override + mute dim), read by both refreshIdentityContrast() and
+    // paint() so they can never disagree on what Column 1 actually looks
+    // like. Called once at construction and again whenever the track's
+    // colour or mute state changes.
+    juce::Colour getIdentityFillColour() const;
+    void refreshIdentityContrast();
 
     // Fold toggle handler — flips isCollapsed, re-lays this header out for the
     // new micro-state (child visibility + geometry), then fires onFoldToggle so
@@ -335,7 +394,11 @@ private:
     // category combo's own onChange, so neither can leave it in a stale
     // visibility state on its own.
     void updateOutputSpecificVisibility();
-    void updateInputSpecificVisibility(); // "No Input" Logic: hides inputSpecificCombo when category == No Input
+
+    // "No Input" & Monitor Logic directive: hides inputSpecificCombo, the
+    // Monitor triad, AND (expanded state) Record Arm when category == No
+    // Input — see the .cpp for exactly which rows survive in which state.
+    void updateInputDependentVisibility();
 
     // resized() dispatches to one of these on isCollapsed — kept separate so the
     // full 3-column geometry and the single-strip micro-state can't tangle.
@@ -384,12 +447,10 @@ private:
     bool isDragHovering = false;
     bool isCollapsed = false; // Cubase/Ableton fold micro-state
 
-    // CrateMixerLookAndFeel renders the pan knob's pan_knob.png filmstrip (+ the
-    // touch-gated neon glow) — declared BEFORE panKnob so panKnob is destroyed
-    // first (members die in reverse declaration order); the dtor also calls
-    // panKnob.setLookAndFeel(nullptr) belt-and-braces, same discipline MixerStrip
-    // keeps for its own identical pairing.
-    CrateMixerLookAndFeel mixerLookAndFeel;
+    // Strict I/O Grid directive — scoped ONLY to Column 2's four routing
+    // combos (see the constructor's setLookAndFeel() calls / the dtor's
+    // teardown).
+    FlatGridComboLookAndFeel flatGridLookAndFeel;
 
     // Column 2's monitor toggle state (IN/AUTO/OFF) — AUTO is Ableton's own
     // default (auto-monitor on record arm). Purely local UI state: no hardware
@@ -412,16 +473,16 @@ private:
     // (everything else: no input-device enumeration or output-bus routing
     // exists in this engine yet).
     juce::ComboBox inputCategoryCombo, inputSpecificCombo;
-    MonitorButton monitorInButton   { "IN" };
-    MonitorButton monitorAutoButton { "AUTO" };
-    MonitorButton monitorOffButton  { "OFF" };
+    MonitorButton monitorInButton   { "In" };
+    MonitorButton monitorAutoButton { "Auto" };
+    MonitorButton monitorOffButton  { "Off" };
     juce::ComboBox outputCategoryCombo, outputSpecificCombo;
 
     MutePlate mutePlate; // the track-number plate, doubling as the Mute toggle
     ToggleBlock recordArmButton { "R", recordOnColour };
     ToggleBlock soloButton      { "S", soloOnColour };
     VolumeBar volumeSlider; // Ableton-style numeric drag-box
-    juce::Slider panKnob { juce::Slider::RotaryVerticalDrag, juce::Slider::NoTextBox };
+    PanBar panBar; // Ableton Geometry / PNG Pivot directive — flat drag-box, not a rotary knob
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TrackHeaderComponent)
 };

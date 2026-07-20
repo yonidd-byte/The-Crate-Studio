@@ -7,13 +7,12 @@ namespace
 {
     using LAF = TheCrateLookAndFeel;
 
-    // Global Color Centralization & Purge: these were independent near-black/
-    // grey literals (0xff252525/0xff3a3a3a) — now the exact same
-    // CrateColors::DarkBackground/LightBackground pair MasterHeaderRow's
-    // identical container styling uses (see ArrangementComponent.cpp's
-    // "literal copy" comment), so the two headers stay pixel-identical.
+    // Global Color Centralization & Purge: this was an independent near-black
+    // literal (0xff252525) — now the exact same CrateColors::DarkBackground
+    // MasterHeaderRow's identical container styling uses (see
+    // ArrangementComponent.cpp's "literal copy" comment). Column 1's own
+    // fallback fill when a track has no colour set yet (getIdentityFillColour()).
     const auto headerDefault  = CrateColors::DarkBackground;
-    const auto headerSelected = CrateColors::LightBackground;
 
     // Role colours (soloOnColour/recordOnColour) now live as TrackHeaderComponent's
     // own inline static members in the header, reading straight from CrateColors —
@@ -24,18 +23,13 @@ namespace
 
     // Design System Centralization: thin aliases into
     // CrateDesignSystem::Metrics::TrackHeader (see that namespace's own
-    // layout for the full 300x90 geometry this class now reads from).
+    // layout for the Content-Driven Dynamic Height architecture this class
+    // now computes its geometry from).
     namespace DS = CrateDesignSystem::Metrics::TrackHeader;
 
     constexpr float meterFloorDb = DS::meterFloorDb;
     constexpr float meterRangeDb = DS::meterRangeDb; // floor to +6 dB headroom
 
-    // Expanded-state geometry is now EXACT HARDCODED juce::Rectangle constants
-    // in layoutExpanded() itself (Lead Architect directive — dynamic flexbox
-    // math produced a scattered layout), so col1Width/col2Width/colGap no
-    // longer exist as separate constants. These two remain: the collapsed
-    // micro-state (layoutCollapsed(), untouched by this directive) still uses
-    // its own dynamic math and needs them.
     constexpr int colourStripW   = DS::colourStripW;    // 3px vertical track-colour strip (collapsed state only)
     constexpr int foldArrowW     = DS::foldArrowCollapsedW;   // standard crisp size — same FoldArrow as the expanded header, kept in step
     constexpr int meterStripW    = DS::meterStripW;    // slim vertical LED meter (collapsed state only — see
@@ -48,19 +42,36 @@ namespace
     // serialization step needed.
     const juce::Identifier armedPropertyID ("crateRecordArmed");
 
+    // Bus/Return Default Collapsed State directive: same key
+    // CrateWorkflowManager::createAndRouteNewFXChannel() stamps onto a
+    // brand-new FX Return track — duplicated rather than sharing a header
+    // (engine-level code never includes a UI header; see that function's own
+    // doc comment on anchorMetadataProperty for the identical reasoning).
+    // Round-trips through the same .crate save/load path as every other
+    // track property (MASTER_ARCHITECTURE.md invariant 3).
+    const juce::Identifier foldedPropertyID ("crateFolded");
+
+    // Content-Driven Dynamic Height directive: input/output category must now
+    // be persisted too — getPreferredHeight() depends on them, and
+    // ArrangementComponent::TrackRow computes the SAME height independently
+    // (it has no live header instance to ask), so both sides need a shared,
+    // round-tripping source of truth rather than combo-box-only UI state
+    // that silently reset to "No Input"/"Master" on every rebuild.
+    const juce::Identifier inputCategoryPropertyID ("crateInputCategory");
+    const juce::Identifier outputCategoryPropertyID ("crateOutputCategory");
+
     const juce::String pluginDragPrefix = "plugin_drag|";
 }
 
 void TrackHeaderComponent::ToggleBlock::paintButton (juce::Graphics& g, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown)
 {
-    // Flat solid-filled square — no rounding, no gradient/bevel, no default JUCE
-    // TextButton chrome — this IS the whole "premium Ableton-style toggle block"
-    // look; there is nothing else drawn on top except the single glyph letter.
-    // Contrast fix: the off-state used to be plain LightBackground — identical
-    // to the track header's own selected-row fill, so an off button's bounding
-    // box was invisible against it ("blob" complaint). Brightened so every
-    // button always reads as its own distinct box.
-    auto bg = getToggleState() ? onColour : CrateColors::LightBackground.brighter (DS::offStateBrighten);
+    // Sunken Boxes directive: unlit reads as a dark LCD cutout sunk into the
+    // now-lighter LightBackground panel (DarkBackground, not a brightened
+    // LightBackground — that used to camouflage against the OLD dark panel,
+    // then would have camouflaged the OPPOSITE way against the new lighter
+    // one). A quiet hairline rim (low-alpha black) defines the box's edge
+    // against the panel, same convention the column dividers use.
+    auto bg = getToggleState() ? onColour : CrateColors::DarkBackground;
 
     if (shouldDrawButtonAsDown)
         bg = bg.brighter (DS::pressedBrighten);
@@ -70,6 +81,10 @@ void TrackHeaderComponent::ToggleBlock::paintButton (juce::Graphics& g, bool sho
     g.setColour (bg);
     g.fillRect (getLocalBounds());
 
+    // Inner Element Strokes directive: crisp 1px solid black, not a soft grey.
+    g.setColour (juce::Colours::black);
+    g.drawRect (getLocalBounds(), 1);
+
     g.setColour (getToggleState() ? juce::Colours::black : LAF::textDim);
     g.setFont (juce::FontOptions (fontSize, juce::Font::bold));
     g.drawText (glyph, getLocalBounds(), juce::Justification::centred);
@@ -77,10 +92,11 @@ void TrackHeaderComponent::ToggleBlock::paintButton (juce::Graphics& g, bool sho
 
 void TrackHeaderComponent::MutePlate::paintButton (juce::Graphics& g, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown)
 {
-    // Toggle state == "is muted". Lit CrateColors::NeonBlue when AUDIBLE (the
-    // common resting state reads as "signal alive"); dim DarkBackground when
-    // muted, so a muted track visibly recedes. The track number stays legible
-    // in both states (dark text on the neon plate, grey text on the dim one).
+    // Restore Column 1 directive: Box A reverts to its original flat-filled
+    // look — lit CrateColors::NeonBlue when AUDIBLE (the common resting state
+    // reads as "signal alive"), dim DarkBackground when muted, so a muted
+    // track visibly recedes. The track number stays legible in both states
+    // (dark text on the neon plate, grey text on the dim one).
     const bool muted = getToggleState();
     auto bg = muted ? CrateColors::DarkBackground : CrateColors::NeonBlue;
 
@@ -91,6 +107,11 @@ void TrackHeaderComponent::MutePlate::paintButton (juce::Graphics& g, bool shoul
 
     g.setColour (bg);
     g.fillRect (getLocalBounds());
+
+    // Inner Element Strokes directive: Box A gets the same crisp 1px solid
+    // black border every other Column 3 box now has.
+    g.setColour (juce::Colours::black);
+    g.drawRect (getLocalBounds(), 1);
 
     g.setColour (muted ? CrateColors::BrandGray : juce::Colours::black);
     g.setFont (juce::FontOptions (CrateDesignSystem::Typography::mutePlateFontSize, juce::Font::bold));
@@ -114,18 +135,25 @@ void TrackHeaderComponent::FoldArrow::paintButton (juce::Graphics& g, bool shoul
         tri.addTriangle (b.getX(), b.getY(), b.getRight(), b.getCentreY(), b.getX(), b.getBottom());
     }
 
-    g.setColour (shouldDrawButtonAsHighlighted ? CrateColors::NeonBlue : CrateColors::BrandGray);
+    // Desaturated Accents directive: NeonBlue is reserved for active values/
+    // automation/the fader thumb — a hover highlight on the fold disclosure
+    // glyph isn't any of those, so it just brightens the same neutral grey.
+    g.setColour (shouldDrawButtonAsHighlighted ? CrateColors::BrandGray.brighter (0.4f) : CrateColors::BrandGray);
     g.fillPath (tri);
 }
 
 void TrackHeaderComponent::MonitorButton::paintButton (juce::Graphics& g, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown)
 {
-    // Flat box, no JUCE chrome — same language as ToggleBlock/MutePlate.
-    // Active state comes from the OWNER's monitorMode via isActive(), not a
-    // per-button toggle state (all three buttons share one group state).
-    // Contrast fix — see ToggleBlock::paintButton's identical comment.
+    // Monitor Triad Borders directive: unlit reads as a dark sunken box
+    // against the LightBackground panel — same DarkBackground fix
+    // ToggleBlock's identical off-state got (LightBackground.brighter() here
+    // was nearly indistinguishable from the panel itself now, which is
+    // exactly why the triad read as "one merged grey blob"). Desaturated
+    // Accents directive: AUTO/IN's lit state stays a muted console amber,
+    // not the bright brand SoloYellow — NeonBlue/saturated brights are
+    // reserved for active values, automation, and the fader thumb.
     const bool active = (isActive != nullptr) && isActive();
-    auto bg = active ? CrateColors::SoloYellow : CrateColors::LightBackground.brighter (DS::offStateBrighten);
+    auto bg = active ? juce::Colour (DS::mutedAmber) : CrateColors::DarkBackground;
 
     if (shouldDrawButtonAsDown)
         bg = bg.brighter (DS::pressedBrighten);
@@ -135,9 +163,22 @@ void TrackHeaderComponent::MonitorButton::paintButton (juce::Graphics& g, bool s
     g.setColour (bg);
     g.fillRect (getLocalBounds());
 
+    // Monitor Triad Borders directive: each of IN/AUTO/OFF gets its own
+    // crisp 1px solid black border — this IS what makes them read as three
+    // separate boxes rather than one merged strip (the outer frame around
+    // the whole triad is drawn once by the owner in TrackHeaderComponent::
+    // paint(), using these buttons' own live bounds).
+    g.setColour (juce::Colours::black);
+    g.drawRect (getLocalBounds(), 1);
+
     g.setColour (active ? juce::Colours::black : CrateColors::BrandGray);
-    g.setFont (juce::FontOptions (CrateDesignSystem::Typography::monitorLabelFontSize, juce::Font::bold));
-    g.drawText (label, getLocalBounds(), juce::Justification::centred);
+    // Title Case directive: "Auto" (vs "AUTO") is narrower on its own, so the
+    // squeeze only needs to be a light 0.95 condense now for that authentic
+    // DAW look — not the aggressive 0.85 the all-caps label required.
+    // useEllipses stays forced off as a belt-and-suspenders guard regardless.
+    auto triadFont = juce::Font (juce::FontOptions (CrateDesignSystem::Typography::monitorLabelFontSize, juce::Font::bold).withHorizontalScale (0.95f));
+    g.setFont (triadFont);
+    g.drawText (label, getLocalBounds(), juce::Justification::centred, false);
 }
 
 void TrackHeaderComponent::VolumeBar::setValue (double newValue, juce::NotificationType nt)
@@ -180,6 +221,11 @@ void TrackHeaderComponent::VolumeBar::paint (juce::Graphics& g)
         g.fillRect (fill);
     }
 
+    // Inner Element Strokes directive: crisp 1px solid black rim, same
+    // convention every other Column 3 box now uses.
+    g.setColour (juce::Colours::black);
+    g.drawRoundedRectangle (b.reduced (0.5f), corner, 1.0f);
+
     // Centred dB readout — white over the fill, still legible over the dark well.
     g.setColour (juce::Colours::white);
     g.setFont (juce::FontOptions (CrateDesignSystem::Typography::volumeBarFontSize, juce::Font::bold));
@@ -217,12 +263,108 @@ void TrackHeaderComponent::VolumeBar::mouseDoubleClick (const juce::MouseEvent&)
     setValue (0.0, juce::sendNotification); // reset to unity gain (0 dB)
 }
 
+void TrackHeaderComponent::PanBar::setValue (double newValue, juce::NotificationType nt)
+{
+    const auto clamped = juce::jlimit (-1.0, 1.0, newValue);
+
+    if (clamped == value)
+        return;
+
+    value = clamped;
+    repaint();
+
+    if (nt == juce::sendNotification && onValueChange)
+        onValueChange();
+}
+
+void TrackHeaderComponent::PanBar::paint (juce::Graphics& g)
+{
+    auto b = getLocalBounds().toFloat();
+    constexpr float corner = DS::volumeBarCornerRadius;
+
+    // Flat dark well — same language as VolumeBar.
+    g.setColour (CrateColors::DarkBackground);
+    g.fillRoundedRectangle (b, corner);
+
+    // NeonBlue fill growing from CENTRE outward toward whichever side the
+    // value leans — the correct bipolar analogue of VolumeBar's left->right
+    // unipolar fill.
+    const auto centreX = b.getCentreX();
+    const auto halfWidth = b.getWidth() * 0.5f;
+    const auto offset = (float) value * halfWidth;
+
+    if (std::abs (offset) > 0.5f)
+    {
+        juce::Graphics::ScopedSaveState clip (g);
+        juce::Path well;
+        well.addRoundedRectangle (b, corner);
+        g.reduceClipRegion (well);
+
+        const auto fill = (offset > 0.0f)
+                              ? juce::Rectangle<float> (centreX, b.getY(), offset, b.getHeight())
+                              : juce::Rectangle<float> (centreX + offset, b.getY(), -offset, b.getHeight());
+        g.setColour (CrateColors::NeonBlue.withAlpha (DS::volumeBarFillAlpha));
+        g.fillRect (fill);
+    }
+
+    // Inner Element Strokes directive: crisp 1px solid black rim, same
+    // convention every other Column 3 box now uses.
+    g.setColour (juce::Colours::black);
+    g.drawRoundedRectangle (b.reduced (0.5f), corner, 1.0f);
+
+    // Centred readout — "C" dead centre, otherwise the percentage toward
+    // whichever side ("50L" / "50R" — PNG Pivot directive's own format).
+    g.setColour (juce::Colours::white);
+    g.setFont (juce::FontOptions (CrateDesignSystem::Typography::volumeBarFontSize, juce::Font::bold));
+
+    const int percent = juce::roundToInt (std::abs (value) * 100.0);
+    const auto text = percent == 0 ? juce::String ("C") : (juce::String (percent) + (value < 0.0 ? "L" : "R"));
+    g.drawText (text, getLocalBounds(), juce::Justification::centred);
+}
+
+void TrackHeaderComponent::PanBar::mouseDown (const juce::MouseEvent&)
+{
+    valueOnDragStart = value;
+
+    if (onDragStart)
+        onDragStart();
+}
+
+void TrackHeaderComponent::PanBar::mouseDrag (const juce::MouseEvent& e)
+{
+    // Same getDistanceFromDragStartX() relative-drag mechanic as VolumeBar —
+    // full drag width sweeps the full bipolar range (2.0, i.e. -1..1).
+    constexpr float pixelsForFullRange = DS::volumeBarDragPixelsForFullRange;
+    const double delta = (double) e.getDistanceFromDragStartX() / (double) pixelsForFullRange * 2.0;
+    setValue (valueOnDragStart + delta, juce::sendNotification);
+}
+
+void TrackHeaderComponent::PanBar::mouseUp (const juce::MouseEvent&)
+{
+    if (onDragEnd)
+        onDragEnd();
+}
+
+void TrackHeaderComponent::PanBar::mouseDoubleClick (const juce::MouseEvent&)
+{
+    setValue (0.0, juce::sendNotification); // reset to centre ("C")
+}
+
 TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, CrateWorkflowManager& workflowToUse)
     : track (trackToControl), workflow (workflowToUse)
 {
     if (track != nullptr)
     {
         isReturnTrackFlag = TrackUtils::isReturnTrack (*track);
+
+        // Bus/Return Default Collapsed State directive: seeds the fold
+        // micro-state from the track's own persisted property — a brand-new
+        // FX Return track is stamped folded=true at creation time (see
+        // CrateWorkflowManager::createAndRouteNewFXChannel()), so it opens as
+        // a minimal collapsed strip; every other track defaults to false
+        // (expanded) exactly as before. toggleFold() writes this same
+        // property back, so a manual fold/unfold round-trips too.
+        isCollapsed = (bool) track->state.getProperty (foldedPropertyID, false);
 
         volumePlugin = track->getVolumePlugin();
 
@@ -249,10 +391,10 @@ TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, 
     foldArrow.isExpanded = [this] { return ! isCollapsed; };
     foldArrow.onClick = [this] { toggleFold(); };
 
-    // Column 3: Mute Plate — the track-number plate IS the Mute toggle. Number
+    // Column 3's Box A: the track-number plate IS the Mute toggle. Number
     // read once from the engine's own 1-based ordering (getAudioTrackNumber());
-    // every add/delete rebuilds every header from scratch, so renumbering falls
-    // out for free. Toggle state == isMuted (true polarity, no inversion).
+    // every add/delete rebuilds every header from scratch, so renumbering
+    // falls out for free. Toggle state == isMuted (true polarity, no inversion).
     addAndMakeVisible (mutePlate);
     mutePlate.setNumberText (track != nullptr ? juce::String (track->getAudioTrackNumber()) : juce::String ("-"));
     mutePlate.setClickingTogglesState (true);
@@ -267,13 +409,15 @@ TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, 
     nameLabel.setText (track != nullptr ? track->getName() : juce::String ("—"), juce::dontSendNotification);
     nameLabel.setFont (juce::FontOptions (CrateDesignSystem::Typography::headerNameFontSize, juce::Font::bold));
     nameLabel.setJustificationType (juce::Justification::centredLeft); // Column 1: left-aligned, bold
-    refreshNameLabelContrast(); // sets textColourId — Column 1 is a solid track-colour fill now, not always dark
-    nameLabel.setEditable (false, true, false); // double-click to rename
-    nameLabel.onTextChange = [this]
-    {
-        if (track != nullptr)
-            track->setName (nameLabel.getText());
-    };
+    refreshIdentityContrast(); // sets Column 1's effective fill + name/number text colours together
+    // Column 1 Click Area directive: the label must NOT swallow clicks — the
+    // ENTIRE Column 1 background (not just the small unclaimed padding
+    // around it) has to trigger track selection via this component's own
+    // mouseDown(). Rename still works, just via the right-click "rename +
+    // colour" menu (showNameColourEditor()) rather than an inline
+    // double-click-to-edit-in-place, which would be unreachable now that
+    // clicks pass straight through anyway.
+    nameLabel.setInterceptsMouseClicks (false, false);
 
     // Column 2: Two-Tier Ableton-style I/O (Hybrid Bus/Return Architecture
     // directive). Flat + dark — strip the V4 combo's outline (transparent)
@@ -284,7 +428,7 @@ TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, 
     // routing. The ONE exception is outputSpecificCombo's "Master" item,
     // which still shows the track's real destination name, same as the
     // single output combo this replaces used to.
-    const auto styleFlatCombo = [] (juce::ComboBox& c)
+    const auto styleFlatCombo = [this] (juce::ComboBox& c)
     {
         c.setColour (juce::ComboBox::backgroundColourId, CrateColors::DarkBackground);
         c.setColour (juce::ComboBox::outlineColourId,    juce::Colours::transparentBlack);
@@ -292,6 +436,10 @@ TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, 
         c.setColour (juce::ComboBox::arrowColourId,      CrateColors::NeonBlue);
         c.setColour (juce::ComboBox::focusedOutlineColourId, juce::Colours::transparentBlack);
         c.setJustificationType (juce::Justification::centredLeft);
+
+        // Strict I/O Grid directive — flat data-table chrome, crisp 1px
+        // border, minimalist 'V' arrow (see FlatGridComboLookAndFeel).
+        c.setLookAndFeel (&flatGridLookAndFeel);
     };
 
     // ---- Input Category / Specific ----
@@ -303,7 +451,12 @@ TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, 
     inputCategoryCombo.addItem ("No Input", 1);
     inputCategoryCombo.addItem ("Ext. In", 2);
     inputCategoryCombo.addItem ("Resampling", 3);
-    inputCategoryCombo.setSelectedId (1, juce::dontSendNotification);
+    // Content-Driven Dynamic Height directive: seeded from the track's own
+    // persisted state, not always defaulting to "No Input" — getPreferredHeight()
+    // depends on this, so it must survive a rebuild exactly like Fold state does.
+    inputCategoryCombo.setSelectedId (
+        track != nullptr ? (int) track->state.getProperty (inputCategoryPropertyID, DS::noInputCategoryId) : DS::noInputCategoryId,
+        juce::dontSendNotification);
     inputCategoryCombo.setTooltip ("Input routing isn't wired to the engine yet - display only.");
 
     addAndMakeVisible (inputSpecificCombo);
@@ -318,14 +471,14 @@ TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, 
     {
         inputSpecificCombo.clear (juce::dontSendNotification);
 
-        constexpr int noInputCategoryId = 1;
         constexpr int resamplingCategoryId = 3;
         const auto categoryId = inputCategoryCombo.getSelectedId();
 
-        if (categoryId == noInputCategoryId)
+        if (categoryId == DS::noInputCategoryId)
         {
-            // "No Input" Logic: nothing to pick — updateInputSpecificVisibility()
-            // hides the combo entirely rather than showing an empty dropdown.
+            // "No Input" Logic: nothing to pick — updateInputDependentVisibility()
+            // hides the combo (and Monitor triad, and Record Arm) entirely
+            // rather than showing an empty dropdown.
         }
         else if (categoryId == resamplingCategoryId)
         {
@@ -340,10 +493,24 @@ TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, 
             inputSpecificCombo.setSelectedId (1, juce::dontSendNotification);
         }
 
-        updateInputSpecificVisibility();
+        updateInputDependentVisibility();
     };
     refreshInputSpecificItems();
-    inputCategoryCombo.onChange = refreshInputSpecificItems;
+    inputCategoryCombo.onChange = [this, refreshInputSpecificItems]
+    {
+        // Content-Driven Dynamic Height directive: this may add/remove the
+        // Input Specific row AND the Monitor triad AND Record Arm — persist
+        // the new category, then tell the row/lane owner this header's
+        // preferred height may have just changed.
+        if (track != nullptr)
+            track->state.setProperty (inputCategoryPropertyID, inputCategoryCombo.getSelectedId(), &track->edit.getUndoManager());
+
+        refreshInputSpecificItems();
+        resized();
+
+        if (onFoldToggle)
+            onFoldToggle();
+    };
 
     // ---- Monitoring (IN / AUTO / OFF) ----
     // AUTO is the default (Ableton convention: auto-monitor on record arm).
@@ -369,7 +536,11 @@ TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, 
     outputCategoryCombo.addItem ("Master", 1);
     outputCategoryCombo.addItem ("Ext. Out", 2);
     outputCategoryCombo.addItem ("Sends Only", 3);
-    outputCategoryCombo.setSelectedId (1, juce::dontSendNotification);
+    // Content-Driven Dynamic Height directive: seeded from persisted state,
+    // same reasoning as inputCategoryCombo above.
+    outputCategoryCombo.setSelectedId (
+        track != nullptr ? (int) track->state.getProperty (outputCategoryPropertyID, DS::masterOutputCategoryId) : DS::masterOutputCategoryId,
+        juce::dontSendNotification);
     outputCategoryCombo.setTooltip ("Output reflects the track's real destination when set to Master.");
 
     addAndMakeVisible (outputSpecificCombo);
@@ -400,7 +571,19 @@ TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, 
         updateOutputSpecificVisibility();
     };
     refreshOutputSpecificItems();
-    outputCategoryCombo.onChange = refreshOutputSpecificItems;
+    outputCategoryCombo.onChange = [this, refreshOutputSpecificItems]
+    {
+        // Content-Driven Dynamic Height directive: may add/remove the Output
+        // Specific row — persist, then notify the row/lane owner.
+        if (track != nullptr)
+            track->state.setProperty (outputCategoryPropertyID, outputCategoryCombo.getSelectedId(), &track->edit.getUndoManager());
+
+        refreshOutputSpecificItems();
+        resized();
+
+        if (onFoldToggle)
+            onFoldToggle();
+    };
 
     recordArmButton.setClickingTogglesState (true);
     soloButton.setClickingTogglesState (true);
@@ -460,17 +643,13 @@ TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, 
     volumeSlider.setRange (-60.0, 6.0);
     volumeSlider.onDragStart = [this] { if (onSelect) onSelect(); };
 
-    // Column 3: the tactile Pan knob — a rotary juce::Slider rendered by
-    // CrateMixerLookAndFeel's pan_knob.png filmstrip (+ its touch-gated neon
-    // glow), the SAME premium bipolar console feel as the Mixer's own pan knob.
-    // Bound strictly via te::AutomatableParameter (panParam) — no
-    // AudioProcessorParameterAttachment (wrong framework for Tracktion Engine).
-    addAndMakeVisible (panKnob);
-    panKnob.setLookAndFeel (&mixerLookAndFeel);
-    panKnob.setRange (-1.0, 1.0, 0.01);
-    panKnob.setDoubleClickReturnValue (true, 0.0);
-    panKnob.setRotaryParameters (juce::MathConstants<float>::pi * 1.2f,
-                                  juce::MathConstants<float>::pi * 2.8f, true);
+    // Column 3: Pan — Ableton Geometry / PNG Pivot directive: a flat
+    // horizontal drag-box (PanBar), not the pan_knob.png rotary MixerStrip/
+    // MasterStrip still use elsewhere — a knob breaks Column 3's strict
+    // row-height grid. Bound strictly via te::AutomatableParameter (panParam)
+    // — no AudioProcessorParameterAttachment (wrong framework for Tracktion
+    // Engine).
+    addAndMakeVisible (panBar);
 
     if (volumePlugin != nullptr)
     {
@@ -481,12 +660,12 @@ TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, 
                 volumePlugin->setVolumeDb ((float) volumeSlider.getValue());
         };
 
-        panKnob.setValue (volumePlugin->getPan(), juce::dontSendNotification);
-        // Pan-knob lifecycle mirrors MixerStrip's: an explicit undo transaction +
+        panBar.setValue (volumePlugin->getPan(), juce::dontSendNotification);
+        // Pan lifecycle mirrors MixerStrip's: an explicit undo transaction +
         // parameterChangeGesture pair around the drag, so a pan tweak is one
         // undoable step and TE's automation sees a proper gesture, not a stream
         // of unrelated value writes.
-        panKnob.onDragStart = [this]
+        panBar.onDragStart = [this]
         {
             if (onSelect) onSelect();
             if (volumePlugin == nullptr) return;
@@ -494,20 +673,20 @@ TrackHeaderComponent::TrackHeaderComponent (te::AudioTrack::Ptr trackToControl, 
                 "Tweak Pan: " + (track != nullptr ? track->getName() : juce::String()));
             volumePlugin->panParam->parameterChangeGestureBegin();
         };
-        panKnob.onDragEnd = [this]
+        panBar.onDragEnd = [this]
         {
             if (volumePlugin != nullptr) volumePlugin->panParam->parameterChangeGestureEnd();
         };
-        panKnob.onValueChange = [this]
+        panBar.onValueChange = [this]
         {
             if (volumePlugin != nullptr)
-                volumePlugin->setPan ((float) panKnob.getValue());
+                volumePlugin->setPan ((float) panBar.getValue());
         };
 
         // Bidirectional sync with MixerStrip: fires when Volume/Pan change from
         // that strip's fader/pan knob (or automation, or a script), not just from
         // this header's own controls. currentValueChanged() refreshes BOTH the
-        // volume slider and the pan knob now that the header owns a real pan control.
+        // volume slider and the pan bar now that the header owns a real pan control.
         volumePlugin->volParam->addListener (this);
         volumePlugin->panParam->addListener (this);
     }
@@ -532,10 +711,10 @@ TrackHeaderComponent::~TrackHeaderComponent()
 {
     stopTimer();
 
-    // Detach the pan knob's LookAndFeel BEFORE mixerLookAndFeel is destroyed —
-    // a live Slider pointing at a freed LookAndFeel would dangle. Belt-and-braces
-    // on top of the declaration order (mixerLookAndFeel declared before panKnob).
-    panKnob.setLookAndFeel (nullptr);
+    inputCategoryCombo.setLookAndFeel (nullptr);
+    inputSpecificCombo.setLookAndFeel (nullptr);
+    outputCategoryCombo.setLookAndFeel (nullptr);
+    outputSpecificCombo.setLookAndFeel (nullptr);
 
     if (volumePlugin != nullptr)
     {
@@ -601,7 +780,7 @@ void TrackHeaderComponent::valueTreePropertyChanged (juce::ValueTree& v, const j
                 return;
 
             safeThis->nameLabel.setText (safeThis->track->getName(), juce::dontSendNotification);
-            safeThis->refreshNameLabelContrast(); // Column 1's fill colour may have just changed
+            safeThis->refreshIdentityContrast(); // Column 1's fill colour may have just changed
             safeThis->repaint(); // Column 1's solid fill is painted from track->getColour()
         });
     }
@@ -620,7 +799,7 @@ void TrackHeaderComponent::refreshPanFromEngine()
     if (volumePlugin == nullptr)
         return;
 
-    panKnob.setValue (volumePlugin->getPan(), juce::dontSendNotification);
+    panBar.setValue (volumePlugin->getPan(), juce::dontSendNotification);
 }
 
 void TrackHeaderComponent::refreshToggleStatesFromEngine()
@@ -641,18 +820,36 @@ void TrackHeaderComponent::refreshToggleStatesFromEngine()
         recordArmButton.setToggleState ((bool) track->state.getProperty (armedPropertyID, false), juce::dontSendNotification);
 }
 
-void TrackHeaderComponent::refreshNameLabelContrast()
+juce::Colour TrackHeaderComponent::getIdentityFillColour() const
 {
-    const auto bg = (track != nullptr && ! track->getColour().isTransparent())
-                        ? track->getColour()
-                        : headerDefault;
+    // Restore Column 1 directive: the base fill — strictly trackColor (no
+    // mute-dimming any more, that's Box A's own concern in Column 3 now).
+    // Return & Master Track Colors directive: a return track never shows its
+    // own (possibly randomly-assigned) te::Track colour — forced to a fixed
+    // neutral grey.
+    const auto baseColour = isReturnTrackFlag
+                                ? CrateColors::BrandGray
+                                : (track != nullptr && ! track->getColour().isTransparent())
+                                    ? track->getColour()
+                                    : headerDefault;
 
-    // Standard relative-luminance formula (ITU-R BT.601 weights) — perceptual
-    // brightness, not JUCE's HSB getBrightness() (which is just max(R,G,B) and
-    // reads saturated colours as "bright" even when they're dark for contrast
-    // purposes, e.g. a pure deep blue). Threshold at 0.5.
-    const float luminance = 0.299f * bg.getFloatRed() + 0.587f * bg.getFloatGreen() + 0.114f * bg.getFloatBlue();
-    nameLabel.setColour (juce::Label::textColourId, luminance > 0.5f ? juce::Colours::black : juce::Colours::white);
+    // Anti-Fatigue / Alpha-Blend Selection directive: selection is a 40%
+    // white overlay ON TOP of the base colour, not a flat whitesmoke block
+    // that erases the track's identity entirely — still reads as brightly
+    // highlighted, but the underlying trackColor (or Return/Master grey)
+    // stays visible through it.
+    if (selected)
+        return baseColour.interpolatedWith (juce::Colours::white, 0.4f);
+
+    return baseColour;
+}
+
+void TrackHeaderComponent::refreshIdentityContrast()
+{
+    // Restore Column 1 directive: only the name label's text colour reads
+    // off trackColor.contrasting() now — pure white or pure black, whichever
+    // Column 1's fill actually needs to stay legible.
+    nameLabel.setColour (juce::Label::textColourId, getIdentityFillColour().contrasting());
 }
 
 void TrackHeaderComponent::timerCallback()
@@ -675,6 +872,11 @@ void TrackHeaderComponent::setSelected (bool shouldBeSelected)
     if (selected != shouldBeSelected)
     {
         selected = shouldBeSelected;
+
+        // Column 1: The Selection Behaviour directive — getIdentityFillColour()
+        // just changed (whitesmoke vs trackColor), so the name label's text
+        // colour must be recomputed to stay legible against whichever it is now.
+        refreshIdentityContrast();
         repaint();
     }
 }
@@ -745,48 +947,30 @@ void TrackHeaderComponent::showNameColourEditor()
 
 void TrackHeaderComponent::paint (juce::Graphics& g)
 {
-    // Base fill for Columns 2 + 3 (Column 1 gets its own solid track-colour
-    // fill below, drawn over whatever's here — this base never shows through
-    // Column 1 once that's painted).
-    g.fillAll (selected ? headerSelected : headerDefault);
+    // Stroke Occlusion Fix directive: this is now FILLS ONLY — every border/
+    // separator stroke moved to paintOverChildren() (see its own doc comment
+    // and the .h declaration) since JUCE paints child components (Column 2's
+    // combos/buttons) strictly between this method and that one; a stroke
+    // drawn here that overlapped a child's bounds got silently painted over
+    // the instant that child rendered itself.
 
-    // Column 1 (Identity): the ENTIRE column is filled SOLID with the track's
-    // colour — exactly like Ableton, not a translucent tint over the whole
-    // header. Falls back to the neutral header fill's own colour when no
-    // track colour is set (te::Track's default is transparent), so an
-    // uncoloured track's Column 1 just reads as part of the same flat panel.
+    // Hardware Lift directive: Columns 2 + 3's panel is LightBackground, not
+    // DarkBackground — visibly lifts this track panel off the main
+    // arrangement void behind it.
+    g.fillAll (CrateColors::LightBackground);
+
+    // Fused Identity Block directive: the ENTIRE column is filled SOLID with
+    // getIdentityFillColour() — Column 1: The Selection Behaviour directive:
+    // a bright fixed highlight when selected (completely overriding
+    // trackColor), otherwise the track's real colour (dimmed if muted), or
+    // BrandGray for a return track — exactly like Ableton, not a translucent
+    // tint over the whole header. Strict Bordered Grid directive: no
+    // left-edge accent stripe drawn over this any more — Column 1 is a BOLD,
+    // full, uninterrupted block.
     if (! column1Bounds.isEmpty())
     {
-        // Return & Master Track Colors directive: a return track never shows
-        // its own (possibly randomly-assigned) te::Track colour in Column 1 —
-        // forced to a fixed neutral grey so it reads as visually distinct
-        // from a regular Audio/MIDI track, same as Master's own row.
-        const auto fillColour = isReturnTrackFlag
-                                    ? CrateColors::BrandGray
-                                    : (track != nullptr && ! track->getColour().isTransparent())
-                                        ? track->getColour()
-                                        : (selected ? headerSelected : headerDefault);
-        g.setColour (fillColour);
+        g.setColour (getIdentityFillColour());
         g.fillRect (column1Bounds);
-    }
-
-    // Left accent stripe when selected — quick visual anchor for the active track.
-    if (selected)
-    {
-        g.setColour (LAF::accent);
-        g.fillRect (juce::Rectangle<int> (0, 0, DS::accentStripeW, getHeight()));
-    }
-
-    // Ableton-style column separators — EXACT hardcoded 1px fills at the fixed
-    // Column 1/2 (x=90) and Column 2/3 (x=180) boundaries of the 300x90
-    // expanded layout (Lead Architect directive — no dynamic position
-    // tracking any more, these ARE the boundaries). Collapsed has no columns
-    // to separate.
-    if (! isCollapsed)
-    {
-        g.setColour (CrateColors::DarkBackground.darker (0.6f));
-        g.fillRect (DS::column1Right, 0, DS::separatorW, DS::headerHeight);
-        g.fillRect (DS::column2Right, 0, DS::separatorW, DS::headerHeight);
     }
 
     // Column 3 far-right edge: slim VERTICAL LED meter — flat fill, fills bottom
@@ -805,22 +989,9 @@ void TrackHeaderComponent::paint (juce::Graphics& g)
         g.fillRect (fill);
     }
 
-    // "Giant Blob" contrast fix: LAF::background (== CrateColors::DarkBackground)
-    // was IDENTICAL to this row's own unselected background fill, so the old
-    // drawHorizontalLine() border vanished against it whenever the track
-    // wasn't selected — exactly the "tracks bleed into each other" symptom.
-    // A literal near-black fillRect guarantees contrast regardless of
-    // selection or track-colour state. The right-edge separator (timeline
-    // boundary, not row-to-row separation) is unaffected by that complaint,
-    // so it keeps its original colour/line.
-    g.setColour (juce::Colours::black);
-    g.fillRect (0, getHeight() - DS::rowBottomBorderH, getWidth(), DS::rowBottomBorderH);
-
-    g.setColour (LAF::background);
-    g.drawVerticalLine (getWidth() - 1, 0.0f, (float) getHeight());
-
     // Premium drop-target glow for a Browser plugin drag — drawn last (on top of
-    // everything above) so it reads clearly regardless of selection/meter state.
+    // every fill above), but STILL before paintOverChildren()'s strokes, so
+    // the "grill" always reads on top of even this.
     if (isDragHovering)
     {
         g.setColour (LAF::accent.withAlpha (0.12f));
@@ -828,6 +999,49 @@ void TrackHeaderComponent::paint (juce::Graphics& g)
         g.setColour (LAF::accent);
         g.drawRect (getLocalBounds(), 2);
     }
+}
+
+void TrackHeaderComponent::paintOverChildren (juce::Graphics& g)
+{
+    // Stroke Occlusion Fix directive: every 2px/1px border/separator lives
+    // here now, drawn AFTER every child Component (Column 2's combos/
+    // buttons, the Monitor triad, etc.) has painted itself — the strokes
+    // act as a hardware "grill" laid on top, and nothing can ever hide them.
+
+    // Global Column Separators directive: absolute, opaque 2px black cuts
+    // between the main UI zones. Collapsed has no columns to separate.
+    if (! isCollapsed)
+    {
+        g.setColour (juce::Colours::black);
+        g.fillRect (DS::column1Right, 0, DS::separatorW, getHeight());
+        g.fillRect (DS::column2Right, 0, DS::separatorW, getHeight());
+    }
+
+    // Monitor Triad Borders directive: each IN/AUTO/OFF button already draws
+    // its own 1px border (see MonitorButton::paintButton) — this is the
+    // OUTER frame around the whole triad as one block, read straight from
+    // the three buttons' own live bounds (resized() math untouched) so it
+    // can never drift out of sync with wherever they actually are.
+    if (monitorInButton.isVisible())
+    {
+        const auto triadBounds = monitorInButton.getBounds()
+                                     .getUnion (monitorAutoButton.getBounds())
+                                     .getUnion (monitorOffButton.getBounds());
+        g.setColour (juce::Colours::black);
+        g.drawRect (triadBounds, 1);
+    }
+
+    // Global Column Separators directive: opaque 2px black cuts at the
+    // ABSOLUTE top (y=0) and bottom (y=height-2) of the entire header,
+    // spanning the full width — strict separation from the timeline grid
+    // and adjacent tracks.
+    g.setColour (juce::Colours::black);
+    g.fillRect (0, 0, getWidth(), DS::rowBottomBorderH);
+    g.fillRect (0, getHeight() - DS::rowBottomBorderH, getWidth(), DS::rowBottomBorderH);
+
+    // Right-edge separator — the strict boundary against the timeline/
+    // arrangement grid. Same opaque 2px cut.
+    g.fillRect (getWidth() - DS::separatorW, 0, DS::separatorW, getHeight());
 }
 
 bool TrackHeaderComponent::isInterestedInDragSource (const SourceDetails& details)
@@ -871,6 +1085,15 @@ void TrackHeaderComponent::toggleFold()
 {
     isCollapsed = ! isCollapsed;
 
+    // Bus/Return Default Collapsed State directive: persists the fold
+    // micro-state on the track's own ValueTree — same round-trips-through-
+    // save/load treatment armedPropertyID already gets, so a track a user
+    // explicitly folded/unfolded stays that way across a project reload,
+    // not just this session (and CrateWorkflowManager stamps this same
+    // property true for a brand-new FX Return track, so it opens folded).
+    if (track != nullptr)
+        track->state.setProperty (foldedPropertyID, isCollapsed, &track->edit.getUndoManager());
+
     // Snappy local feedback first (re-lay this header for the new micro-state),
     // then bridge the height change out so the lane row matches — that round-trip
     // (relayoutFromHeights) re-sets this header's bounds and calls resized() again
@@ -885,35 +1108,44 @@ void TrackHeaderComponent::toggleFold()
 
 void TrackHeaderComponent::applyCollapsedVisibility()
 {
-    // Column 2 (Routing, now 5 rows) + the pan knob + volume drag-box are the
-    // controls that only exist in the expanded state.
+    // Column 2 (Routing) + the pan knob + volume drag-box are the controls
+    // that only exist in the expanded state.
     const bool showInputControls = ! isCollapsed && ! isReturnTrackFlag;
 
     // Hybrid Bus/Return Architecture (Ableton Accuracy): return tracks don't
     // record from external inputs — Input Category/Specific and the
     // IN/AUTO/OFF monitor triad never show for one, expanded or not.
     inputCategoryCombo.setVisible (showInputControls);
-    updateInputSpecificVisibility(); // "No Input" Logic: also hides when category == No Input
-    monitorInButton.setVisible (showInputControls);
-    monitorAutoButton.setVisible (showInputControls);
-    monitorOffButton.setVisible (showInputControls);
+    updateInputDependentVisibility(); // "No Input" Logic: also hides Input Specific + Monitor triad + Record Arm
     outputCategoryCombo.setVisible (! isCollapsed);
     updateOutputSpecificVisibility(); // Output Combo Box Logic: also hides when category == Master
     volumeSlider.setVisible (! isCollapsed);
-    panKnob.setVisible (! isCollapsed);
+    panBar.setVisible (! isCollapsed);
 }
 
-void TrackHeaderComponent::updateInputSpecificVisibility()
+void TrackHeaderComponent::updateInputDependentVisibility()
 {
-    constexpr int noInputCategoryId = 1;
-    const bool showInputControls = ! isCollapsed && ! isReturnTrackFlag;
-    inputSpecificCombo.setVisible (showInputControls && inputCategoryCombo.getSelectedId() != noInputCategoryId);
+    // "No Input" & Monitor Logic directive: selecting "No Input" doesn't just
+    // grey out the Input Specific combo — it REMOVES the Input Specific row,
+    // the entire IN/AUTO/OFF Monitor triad, AND (expanded state only) Record
+    // Arm, exactly like real Ableton (arming record with no input source is
+    // meaningless). Collapsed micro-state keeps showing Record/Post-Pre
+    // regardless — that compact strip's content is unrelated to this rule.
+    const bool showExpandedInputRows = ! isCollapsed && ! isReturnTrackFlag;
+    const bool hasInput = inputCategoryCombo.getSelectedId() != DS::noInputCategoryId;
+
+    inputSpecificCombo.setVisible (showExpandedInputRows && hasInput);
+    monitorInButton.setVisible   (showExpandedInputRows && hasInput);
+    monitorAutoButton.setVisible (showExpandedInputRows && hasInput);
+    monitorOffButton.setVisible  (showExpandedInputRows && hasInput);
+
+    if (! isReturnTrackFlag)
+        recordArmButton.setVisible (isCollapsed || hasInput);
 }
 
 void TrackHeaderComponent::updateOutputSpecificVisibility()
 {
-    constexpr int masterCategoryId = 1;
-    outputSpecificCombo.setVisible (! isCollapsed && outputCategoryCombo.getSelectedId() != masterCategoryId);
+    outputSpecificCombo.setVisible (! isCollapsed && outputCategoryCombo.getSelectedId() != DS::masterOutputCategoryId);
 }
 
 void TrackHeaderComponent::resized()
@@ -926,61 +1158,211 @@ void TrackHeaderComponent::resized()
         layoutExpanded (getLocalBounds());
 }
 
-void TrackHeaderComponent::layoutExpanded (juce::Rectangle<int>)
+int TrackHeaderComponent::getPreferredHeight() const
 {
-    // EXACT HARDCODED BOUNDS (Lead Architect directive) — no removeFromLeft(),
-    // no withSizeKeepingCentre(), no derived math. Every number below is a
-    // literal pixel position/size for the 300x90 expanded header. The
-    // parameter is ignored (always getLocalBounds() == {0,0,300,90} for this
-    // row) since nothing here is computed FROM it any more.
+    return computePreferredHeight (isReturnTrackFlag, isCollapsed,
+                                    inputCategoryCombo.getSelectedId(),
+                                    outputCategoryCombo.getSelectedId());
+}
 
-    // ---- Column 1 (Identity): x=[0,90) ----------------------------------------
-    column1Bounds = { 0, 0, DS::column1Right, DS::headerHeight }; // solid track-colour fill, strictly bounded — see paint()
-    foldArrow.setBounds (DS::foldArrowX, DS::foldArrowY, DS::foldArrowW, DS::foldArrowH); // standard crisp, centred disclosure glyph — NOT the squashed 10x10
-    nameLabel.setBounds (DS::nameLabelX, DS::nameLabelY, DS::nameLabelW, DS::nameLabelH); // vertically centred by the label's own Justification::centredLeft
+int TrackHeaderComponent::computePreferredHeight (bool isReturnTrack, bool isCollapsedState,
+                                                   int inputCategoryId, int outputCategoryId)
+{
+    if (isReturnTrack)
+        return isCollapsedState ? DS::returnCollapsedHeight : DS::returnExpandedHeight;
 
-    // ---- Column 2 (Routing): x=[90,180) ----------------------------------
+    if (isCollapsedState)
+        return DS::collapsedHeight;
+
+    // Column 2's dynamic row count: input block (1 or 2 rows) + monitor
+    // triad (0 or 1) + output block (1 or 2 rows).
+    const bool hasInput = inputCategoryId != DS::noInputCategoryId;
+    const bool hasOutputSpecific = outputCategoryId != DS::masterOutputCategoryId;
+
+    const int inputRows  = hasInput ? 2 : 1;
+    const int monitorRows = hasInput ? 1 : 0;
+    const int outputRows = hasOutputSpecific ? 2 : 1;
+    const int totalRows  = inputRows + monitorRows + outputRows;
+
+    // 2px Breathing Room directive: (numVisibleRows * 13) +
+    // ((numVisibleRows - 1) * 4) + topInset(4) + bottomInset(4) = +8px total
+    // — MUST match layoutExpanded()'s col2 construction (reduced(col2Inset)
+    // + withTrimmedTop/Bottom(rowBottomBorderH), DS::col2RowGap between
+    // rows) exactly, term for term, or the bottom rows compress.
+    const int column2Height = totalRows * DS::rowH + (totalRows - 1) * DS::col2RowGap
+                                 + 2 * (DS::col2Inset + DS::rowBottomBorderH);
+
+    // Column 3's content is fixed regardless of state — the floor under
+    // Column 2's dynamic range (see CrateDesignSystem.h's own doc comment).
+    return juce::jmax (column2Height, DS::column3FixedHeight);
+}
+
+void TrackHeaderComponent::layoutExpanded (juce::Rectangle<int> full)
+{
+    // Content-Driven Dynamic Height directive: column WIDTHS stay fixed
+    // (0/90/180 boundaries), only HEIGHT flexes — `full`'s height already
+    // equals getPreferredHeight() (the row/lane owner sized us to that
+    // before calling resized(), same contract getPreferredHeight()'s own
+    // doc comment describes). Every row below is stacked top-down and
+    // conditionally, not a literal hardcoded rect any more.
+
+    // ---- Column 1 (Identity Only): x=[0,90), full height ---------------------
+    // Restore Column 1 directive: strictly the fold arrow + track name on the
+    // full-height trackColor fill — no track number, no Mute interaction
+    // here any more (that's Column 3's Box A now).
+    column1Bounds = { 0, 0, DS::column1Right, full.getHeight() };
+    {
+        const int foldY = (full.getHeight() - DS::foldArrowSize) / 2;
+        foldArrow.setBounds (DS::identityPad, foldY, DS::foldArrowSize, DS::foldArrowSize);
+
+        const int nameX = DS::identityPad + DS::foldArrowSize + DS::identityPad;
+        nameLabel.setBounds (nameX, 0, DS::column1Right - nameX - DS::identityPad, full.getHeight()); // vertically centred by the label's own Justification::centredLeft
+    }
+
+    // ---- Column 2 (Routing): x=[90,180), dynamic top-down stack --------------
+    // Column 2 Breathing Room directive: a strict 2px inset on all four
+    // sides — rows no longer stretch flush against the Column 1/2, Column
+    // 2/3, top, or bottom boundaries. computePreferredHeight() accounts for
+    // the added 4px (2 top + 2 bottom) so nothing gets cut off.
+    //
+    // Column 2 Left Collision directive: the Column 1/2 divider line itself
+    // is drawn 2px WIDE (DS::separatorW), occupying x=[90,92) — a plain
+    // .reduced(col2Inset) alone only pushes content to x=92, i.e. flush
+    // against the line's OWN far edge with zero visible gap after it. The
+    // Column 2/3 side doesn't have this problem (that divider starts AT
+    // column2Right, so the right-side .reduced() already clears it with a
+    // real gap) — only the left side needs the line's width trimmed off on
+    // top of the normal inset, which is what actually gives it "breathing
+    // room to match the right side."
+    //
+    // 2px Breathing Room directive: startY MUST be 4 — 2px for the
+    // paintOverChildren() global stroke itself (DS::rowBottomBorderH) PLUS a
+    // further 2px of truly EMPTY space (DS::col2Inset) before content
+    // begins. reduced(col2Inset) alone only reaches y=2, flush against the
+    // stroke's own far edge with zero visible gap — trimming the stroke's
+    // own width off on top of the normal inset is what actually clears it.
+    // Same treatment on the bottom (4px clearance from the header's
+    // absolute bottom edge). computePreferredHeight() adds this exact 8px
+    // (4 top + 4 bottom) so nothing gets compressed.
+    auto col2 = full.withX (DS::column1Right).withWidth (DS::column2Right - DS::column1Right)
+                    .reduced (DS::col2Inset)
+                    .withTrimmedLeft (DS::separatorW)
+                    .withTrimmedTop (DS::rowBottomBorderH)
+                    .withTrimmedBottom (DS::rowBottomBorderH);
+
     if (isReturnTrackFlag)
     {
-        // Ableton Accuracy: return tracks don't record from external inputs —
-        // Input Category/Specific + the monitor triad are hidden entirely
-        // (applyCollapsedVisibility()), so ONLY the two Output combos need
-        // bounds here, centred as a 2-row (36px) block in the full 90px
-        // column height: (90-36)/2 = 27.
-        outputCategoryCombo.setBounds (DS::col2X, DS::col2ReturnRow1Y, DS::col2W, DS::col2RowH);
-        outputSpecificCombo.setBounds (DS::col2X, DS::col2ReturnRow2Y, DS::col2W, DS::col2RowH);
+        // Return/FX Track Dynamics directive: only the routing dropdown(s) —
+        // Input Category/Specific + the Monitor triad never exist for a
+        // return at all (applyCollapsedVisibility() keeps them hidden).
+        outputCategoryCombo.setBounds (col2.removeFromTop (DS::rowH));
+
+        if (outputSpecificCombo.isVisible())
+        {
+            col2.removeFromTop (DS::col2RowGap);
+            outputSpecificCombo.setBounds (col2.removeFromTop (DS::rowH));
+        }
     }
     else
     {
-        // 5 rows of exactly 18px, tiling the full 90px column height with
-        // ZERO dead space (Hybrid Bus/Return Architecture directive). x=94/
-        // width=82 insets each row 4px from the Column 1/2 and Column 2/3
-        // separator lines (x=90, x=180).
-        inputCategoryCombo.setBounds  (DS::col2X, 0, DS::col2W, DS::col2RowH);
-        inputSpecificCombo.setBounds  (DS::col2X, DS::inputSpecificY, DS::col2W, DS::col2RowH);
+        // "No Input" & Monitor Logic directive: each row below only claims
+        // space if updateInputDependentVisibility()/updateOutputSpecificVisibility()
+        // actually left it visible — a hidden row contributes ZERO height,
+        // so everything after it shifts up instead of leaving dead space.
+        // Column 2 Row Gaps directive: a gap is only inserted BEFORE a row
+        // that's actually about to be laid out — never a dangling gap with
+        // nothing after it.
+        inputCategoryCombo.setBounds (col2.removeFromTop (DS::rowH));
+
+        if (inputSpecificCombo.isVisible())
         {
-            // IN | AUTO | OFF — 3 equal buttons, 2px gaps, within the same 82px row width.
-            constexpr int monitorBtnW = (DS::col2W - 2 * DS::monitorGap) / 3;
-            monitorInButton.setBounds   (DS::col2X, DS::monitorRowY, monitorBtnW, DS::monitorRowH);
-            monitorAutoButton.setBounds (DS::col2X + monitorBtnW + DS::monitorGap, DS::monitorRowY, monitorBtnW, DS::monitorRowH);
-            monitorOffButton.setBounds  (DS::col2X + (monitorBtnW + DS::monitorGap) * 2, DS::monitorRowY, monitorBtnW, DS::monitorRowH);
+            col2.removeFromTop (DS::col2RowGap);
+            inputSpecificCombo.setBounds (col2.removeFromTop (DS::rowH));
         }
-        outputCategoryCombo.setBounds (DS::col2X, DS::outputCategoryY, DS::col2W, DS::col2RowH);
-        outputSpecificCombo.setBounds (DS::col2X, DS::outputSpecificY, DS::col2W, DS::col2RowH);
+
+        if (monitorInButton.isVisible())
+        {
+            col2.removeFromTop (DS::col2RowGap);
+
+            // IN | AUTO | OFF — 3 equal buttons, 2px gaps. Blurry Text Fix
+            // directive: explicit integer snap (juce::roundToInt over a
+            // float divide) on the width split, rather than leaving it to
+            // plain int truncation — belt-and-suspenders against any
+            // sub-pixel drift feeding into the buttons' own text rendering.
+            auto row = col2.removeFromTop (DS::rowH);
+            constexpr int gap = 2;
+            const int btnW = juce::roundToInt ((float) (row.getWidth() - 2 * gap) / 3.0f);
+            monitorInButton.setBounds   (row.removeFromLeft (btnW));
+            row.removeFromLeft (gap);
+            monitorAutoButton.setBounds (row.removeFromLeft (btnW));
+            row.removeFromLeft (gap);
+            monitorOffButton.setBounds  (row); // remainder absorbs integer-division rounding
+        }
+
+        col2.removeFromTop (DS::col2RowGap);
+        outputCategoryCombo.setBounds (col2.removeFromTop (DS::rowH));
+
+        if (outputSpecificCombo.isVisible())
+        {
+            col2.removeFromTop (DS::col2RowGap);
+            outputSpecificCombo.setBounds (col2.removeFromTop (DS::rowH));
+        }
     }
 
-    // ---- Column 3 (Mini-Mixer): x=[180,300) -----------------------------------
-    mutePlate.setBounds       (DS::mutePlateX, DS::mutePlateY, DS::mutePlateW, DS::mutePlateH); // track number
-    volumeSlider.setBounds    (DS::volumeSliderX, DS::volumeSliderY, DS::volumeSliderW, DS::volumeSliderH); // numeric drag-box
-    soloButton.setBounds      (DS::soloButtonX, DS::soloButtonY, DS::soloButtonWH, DS::soloButtonWH);
-    recordArmButton.setBounds (DS::recordButtonX, DS::recordButtonY, DS::recordButtonWH, DS::recordButtonWH); // "R" (Record) — or "Pre/Post" for a return track, see constructor
-    panKnob.setBounds         (DS::panKnobX, DS::panKnobY, DS::panKnobWH, DS::panKnobWH); // centred under S/R
+    // ---- Column 3 (Mini-Mixer): x=[181,300) --------------------------------
+    // Ableton Geometry directive: ABSOLUTE, hardcoded pixel math — no
+    // FlexBox/relative-percentage builders. Column 3's own bounds are a
+    // fixed (col3Width x col3Height) block starting 1px past the Column 2/3
+    // divider hairline; every child position below is literal integer
+    // arithmetic within THAT block's local coordinate space, exactly per
+    // spec (comments show the same math the directive itself specified).
+    constexpr int col3Width  = DS::col3Width;  // 119 — height is full.getHeight() now, see the Meter comment below
+    const int col3X = DS::column2Right + 1;    // 181 — 1px past the divider line
 
-    // Restore the Meters directive: this used to be left empty (meterBounds
-    // = {}) to protect a "reserved for future Sends UI" strip at x=[282,300)
-    // — that reservation is superseded now; the meter belongs here, compact,
-    // on the far right edge of Column 3.
-    meterBounds = { DS::meterX, DS::meterY, DS::meterW, DS::meterH };
+    // The Meter (right-aligned anchor) — width 7, 10px from Column 3's right
+    // edge, with a guaranteed 3px of empty space above AND below it (Meter
+    // Padding directive — 2px read as touching the row dividers in practice,
+    // so this is the more generous fallback). Height tracks the header's
+    // ACTUAL current height (full.getHeight()), not the fixed col3Height
+    // literal — Column 2 Row Gaps can make a track taller than the 86px
+    // floor, and the meter must still never touch that taller box's own
+    // top/bottom edges.
+    constexpr int meterVerticalPad = 3;
+    meterBounds = { col3X + col3Width - 10 - 7, meterVerticalPad, 7, full.getHeight() - meterVerticalPad * 2 };
+
+    // Row 1 (y = 4 — 2px Breathing Room directive: identical startY to
+    // Column 2's first row [2px stroke + 2px empty gap], so Box A's top
+    // edge forms a perfect horizontal line with Column 2's top row, with a
+    // real 2px of empty space above both, not flush against the stroke):
+    // Box A (Mute Plate, track number) | Box B (Solo) | Box C (Record —
+    // Ableton parity: only rendered when input isn't "No Input"). 4px gaps:
+    // Box A right edge (2+46=48) -> Box B at 52; Box B right edge (52+21=73)
+    // -> Box C at 77; Box C right edge (77+21=98) -> Meter at 102
+    // (col3X + 119 - 17 = col3X + 102) — the exact 4px gap the directive
+    // calls out.
+    constexpr int col3Row1Y = 4;
+    constexpr int col3Row2Y = col3Row1Y + 13 + 4; // Row 1 bottom + 4 = 21
+
+    mutePlate.setBounds  (col3X + 2,  col3Row1Y, 46, 13); // Box A
+    soloButton.setBounds (col3X + 52, col3Row1Y, 21, 13); // Box B
+
+    if (recordArmButton.isVisible())
+        recordArmButton.setBounds (col3X + 77, col3Row1Y, 21, 13); // Box C
+    // else: "No Input" & Monitor Logic directive — Box C is hidden entirely,
+    // its slot stays blank (NOT absorbed by Box B, which stays fixed-width
+    // per the mathematically-locked grid).
+
+    // Row 2: Volume directly under Box A at the SAME width; Pan — PNG Pivot
+    // directive's flat drag-box, not a rotary knob — spans exactly the
+    // Box B + gap + Box C width (21 + 4 + 21 = 46) directly under them.
+    volumeSlider.setBounds (col3X + 2,  col3Row2Y, 46, 13);
+    panBar.setBounds       (col3X + 52, col3Row2Y, 46, 13);
+
+    // Sends/Returns (Row 3+) directive: any FUTURE row below Row 2 follows
+    // the identical y = previousRowBottom + 4 grid rule, aligned within the
+    // same col3X + {2, 52} horizontal constraints above — no such row exists
+    // yet (this component has no Sends UI of its own), so there is nothing
+    // to lay out here today; this comment is the contract for whoever adds one.
 }
 
 void TrackHeaderComponent::layoutCollapsed (juce::Rectangle<int> full)

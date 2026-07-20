@@ -56,6 +56,7 @@ target_sources(TheCrateStudio PRIVATE
     Source/UI/CrateMixerLookAndFeel.cpp
     Source/UI/HardwareSlotLookAndFeel.cpp
     Source/UI/GhostButtonLookAndFeel.cpp
+    Source/UI/FlatGridComboLookAndFeel.cpp
     Source/UI/PluginSlotComponent.cpp
     Source/UI/PluginWindow.cpp
     Source/UI/TheCrateLookAndFeel.cpp

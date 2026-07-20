@@ -25,6 +25,9 @@
     <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\MasterStrip.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\InsertsRackComponent.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\UniversalDeviceChainComponent.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -38,6 +41,15 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\CrateMixerLookAndFeel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\HardwareSlotLookAndFeel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\GhostButtonLookAndFeel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\FlatGridComboLookAndFeel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\PluginSlotComponent.cpp">

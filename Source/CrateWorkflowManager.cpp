@@ -11,6 +11,12 @@ namespace
     // for the property's presence, not decode it.
     const juce::Identifier anchorMetadataProperty ("crateAnchors");
 
+    // Bus/Return Default Collapsed State directive: same key
+    // TrackHeaderComponent reads to seed its fold micro-state — duplicated
+    // rather than sharing a UI header, same reasoning as
+    // anchorMetadataProperty just above.
+    const juce::Identifier foldedPropertyID ("crateFolded");
+
     // BUG AUTOPSY: TE's default EngineBehaviour::getEditLimits() caps a track at
     // EditLimits::maxPluginsOnTrack == 16 total plugins (tracktion_EngineBehaviour.h)
     // — a sane guard rail for TE's own demo apps, never overridden here, so it was
@@ -257,6 +263,25 @@ void CrateWorkflowManager::createAndRouteNewFXChannel (te::Track& sourceTrack)
 
     // Step 3.
     returnTrack->setName ("Bus " + juce::String (busNumber) + " FX");
+
+    // Fused Identity Block directive (Engine Fix): same random-colour
+    // assignment ArrangementComponent::addTrack() gives a regular track —
+    // harmless here even though TrackHeaderComponent::paint() always forces
+    // BrandGray over a return track's Column 1 regardless of this value, but
+    // keeping every new te::AudioTrack colour-assigned the same way (one
+    // rule, no special-casing by track type) is simpler than carving out an
+    // exception, and the colour is still real Undo-tracked track state.
+    // Soft Pastel Auto-Colours directive: low saturation (0.3-0.5 range,
+    // calm studio-label look), high brightness — not the harsher, more
+    // saturated neon this used to generate.
+    returnTrack->setColour (juce::Colour::fromHSV (juce::Random::getSystemRandom().nextFloat(), 0.35f, 0.85f, 1.0f));
+
+    // Bus/Return Default Collapsed State directive: a brand-new FX Return
+    // track opens as a minimal COLLAPSED strip, not full expanded height —
+    // it's DSP plumbing the user just asked for, not something they need to
+    // immediately look at Column 2/3 controls on. TrackHeaderComponent reads
+    // this same property back to seed its fold micro-state.
+    returnTrack->state.setProperty (foldedPropertyID, true, nullptr);
 
     // Step 4: the RETURN side of the bus, on the new track.
     if (auto returnPlugin = edit->getPluginCache().createNewPlugin (te::AuxReturnPlugin::xmlTypeName, juce::PluginDescription()))

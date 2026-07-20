@@ -1,0 +1,33 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\juce_binarydata_TheCrateStudioAssets\JuceLibraryCode\BinaryData1.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\juce_binarydata_TheCrateStudioAssets\JuceLibraryCode\BinaryData2.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\User\Desktop\The Crate Studio\juce_binarydata_TheCrateStudioAssets\JuceLibraryCode\BinaryData.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\User\Desktop\The Crate Studio\CMakeFiles\736ee7699c8956bea2e69105b209ab46\BinaryData1.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\User\Desktop\The Crate Studio\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{F9CD16CD-4044-31AD-9192-D28E6313E986}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{AD0BCA54-6EC4-3C84-8010-41A4B4D3BC84}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{29459C2E-8080-3C3E-8CE9-C0D4BC49F375}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
