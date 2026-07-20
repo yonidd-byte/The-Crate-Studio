@@ -405,6 +405,16 @@ private:
     void layoutExpanded (juce::Rectangle<int> area);
     void layoutCollapsed (juce::Rectangle<int> area);
 
+    // Immutable Column Widths directive: Column 1 (identity) and Column 3
+    // (mini-mixer) use IDENTICAL x/width/child-position math whether folded
+    // or not — factored out here once so the two states can never drift
+    // apart into two independently-hand-maintained copies of the same
+    // numbers. Only Column 2's content differs (full routing stack vs a
+    // single dummy placeholder box), so that part stays local to each of
+    // layoutExpanded()/layoutCollapsed().
+    void layoutIdentityColumn (juce::Rectangle<int> full);
+    void layoutColumn3 (juce::Rectangle<int> full);
+
     // Sets child visibility for the CURRENT isCollapsed state (Column 2, pan
     // knob and volume slider hide when collapsed). Called from resized() before
     // laying out, so a hidden control never gets stale bounds.
@@ -442,6 +452,14 @@ private:
     // be recomputed for contrast whenever this fill's colour changes — see
     // refreshNameLabelContrast().
     juce::Rectangle<int> column1Bounds;
+
+    // Collapsed Column 2 Placeholder directive: folded state still shows a
+    // blank, disabled "dummy" ComboBox-styled box in Column 2 (Ableton never
+    // lets a column go visually empty) — same x, 4px inset, and 13px height
+    // as the expanded state's own top row. Empty when expanded (layoutExpanded()
+    // never touches it); paint()/paintOverChildren() gate its fill/border on
+    // isCollapsed.
+    juce::Rectangle<int> collapsedRoutingPlaceholder;
 
     bool selected = false;
     bool isDragHovering = false;

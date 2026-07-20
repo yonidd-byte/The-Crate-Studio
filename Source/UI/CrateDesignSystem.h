@@ -220,14 +220,6 @@ namespace CrateDesignSystem
             static constexpr float meterFloorDb = -60.0f;
             static constexpr float meterRangeDb = 66.0f;
 
-            // Collapsed micro-state (regular tracks)
-            static constexpr int collapsedPadX = 6, collapsedPadY = 4;
-            static constexpr int colourStripW = 3;
-            static constexpr int foldArrowCollapsedW = 14;
-            static constexpr int meterStripW = 5;
-            static constexpr int nameToStripGap = 5;
-            static constexpr int collapsedPlateW = 22, collapsedSRW = 18, collapsedGap = 3;
-
             // Column separators / accent stripe / bottom border. Strict
             // Bordered Grid directive: these are opaque 2px black cuts —
             // absolute separation between UI zones, not a felt hairline.

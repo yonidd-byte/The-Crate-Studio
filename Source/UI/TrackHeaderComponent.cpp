@@ -30,12 +30,6 @@ namespace
     constexpr float meterFloorDb = DS::meterFloorDb;
     constexpr float meterRangeDb = DS::meterRangeDb; // floor to +6 dB headroom
 
-    constexpr int colourStripW   = DS::colourStripW;    // 3px vertical track-colour strip (collapsed state only)
-    constexpr int foldArrowW     = DS::foldArrowCollapsedW;   // standard crisp size — same FoldArrow as the expanded header, kept in step
-    constexpr int meterStripW    = DS::meterStripW;    // slim vertical LED meter (collapsed state only — see
-                                         // layoutExpanded()'s own doc comment for why the expanded
-                                         // state's meter is temporarily not painted)
-
     // Persisted as a plain property on the track's own ValueTree — round-trips
     // through the same .crate save/load path as every other track property
     // (MASTER_ARCHITECTURE.md invariant 3: "Everything persists"), no separate
@@ -973,6 +967,16 @@ void TrackHeaderComponent::paint (juce::Graphics& g)
         g.fillRect (column1Bounds);
     }
 
+    // Column 2 Folded Placeholder directive: a blank, disabled dummy box
+    // holds Column 2's grid line open when folded — same DarkBackground
+    // "sunken LCD cutout" fill every real ComboBox in this column uses (see
+    // FlatGridComboLookAndFeel), just with no text/arrow drawn into it.
+    if (isCollapsed && ! collapsedRoutingPlaceholder.isEmpty())
+    {
+        g.setColour (CrateColors::DarkBackground);
+        g.fillRect (collapsedRoutingPlaceholder);
+    }
+
     // Column 3 far-right edge: slim VERTICAL LED meter — flat fill, fills bottom
     // -> up with level, hot red near clipping (matching the Mixer's meter language).
     if (! meterBounds.isEmpty())
@@ -1009,12 +1013,21 @@ void TrackHeaderComponent::paintOverChildren (juce::Graphics& g)
     // act as a hardware "grill" laid on top, and nothing can ever hide them.
 
     // Global Column Separators directive: absolute, opaque 2px black cuts
-    // between the main UI zones. Collapsed has no columns to separate.
-    if (! isCollapsed)
+    // between the main UI zones. Immutable Column Widths directive: these
+    // draw at the SAME x coordinates whether folded or not — the 3-column
+    // grid boundaries never move, so the separators never gate on
+    // isCollapsed any more.
+    g.setColour (juce::Colours::black);
+    g.fillRect (DS::column1Right, 0, DS::separatorW, getHeight());
+    g.fillRect (DS::column2Right, 0, DS::separatorW, getHeight());
+
+    // Column 2 Folded Placeholder directive: crisp 1px opaque border around
+    // the dummy box, same visual language as FlatGridComboLookAndFeel's real
+    // ComboBox border — reads as "a disabled control", not a rendering gap.
+    if (isCollapsed && ! collapsedRoutingPlaceholder.isEmpty())
     {
         g.setColour (juce::Colours::black);
-        g.fillRect (DS::column1Right, 0, DS::separatorW, getHeight());
-        g.fillRect (DS::column2Right, 0, DS::separatorW, getHeight());
+        g.drawRect (collapsedRoutingPlaceholder, 1);
     }
 
     // Monitor Triad Borders directive: each IN/AUTO/OFF button already draws
@@ -1207,17 +1220,7 @@ void TrackHeaderComponent::layoutExpanded (juce::Rectangle<int> full)
     // conditionally, not a literal hardcoded rect any more.
 
     // ---- Column 1 (Identity Only): x=[0,90), full height ---------------------
-    // Restore Column 1 directive: strictly the fold arrow + track name on the
-    // full-height trackColor fill — no track number, no Mute interaction
-    // here any more (that's Column 3's Box A now).
-    column1Bounds = { 0, 0, DS::column1Right, full.getHeight() };
-    {
-        const int foldY = (full.getHeight() - DS::foldArrowSize) / 2;
-        foldArrow.setBounds (DS::identityPad, foldY, DS::foldArrowSize, DS::foldArrowSize);
-
-        const int nameX = DS::identityPad + DS::foldArrowSize + DS::identityPad;
-        nameLabel.setBounds (nameX, 0, DS::column1Right - nameX - DS::identityPad, full.getHeight()); // vertically centred by the label's own Justification::centredLeft
-    }
+    layoutIdentityColumn (full);
 
     // ---- Column 2 (Routing): x=[90,180), dynamic top-down stack --------------
     // Column 2 Breathing Room directive: a strict 2px inset on all four
@@ -1310,12 +1313,59 @@ void TrackHeaderComponent::layoutExpanded (juce::Rectangle<int> full)
     }
 
     // ---- Column 3 (Mini-Mixer): x=[181,300) --------------------------------
+    layoutColumn3 (full);
+}
+
+void TrackHeaderComponent::layoutIdentityColumn (juce::Rectangle<int> full)
+{
+    // Restore Column 1 directive: strictly the fold arrow + track name on the
+    // full-height trackColor fill — no track number, no Mute interaction
+    // here any more (that's Column 3's Box A now). Immutable Column Widths
+    // directive: this same code runs for BOTH layoutExpanded() and
+    // layoutCollapsed() — Column 1's x=[0,90) box and its two children's
+    // positions (parametrized entirely off full.getHeight()) never change
+    // shape between the two states, only the height they're centred/spread
+    // across does.
+    column1Bounds = { 0, 0, DS::column1Right, full.getHeight() };
+
+    const int foldY = (full.getHeight() - DS::foldArrowSize) / 2;
+    foldArrow.setBounds (DS::identityPad, foldY, DS::foldArrowSize, DS::foldArrowSize);
+
+    const int nameX = DS::identityPad + DS::foldArrowSize + DS::identityPad;
+    const int nameW = DS::column1Right - nameX - DS::identityPad;
+
+    if (isCollapsed)
+    {
+        // Text Baseline Symmetry directive: folded state doesn't stretch the
+        // name label across the full row height any more — it gets the
+        // SAME y/height (13px, absolute-centred on the current folded
+        // height) as Column 2's dummy box and Column 3's Box A/B/C, so the
+        // name's own vertical centring inside that 13px band lines its
+        // baseline up with theirs exactly, instead of two independently
+        // "centred" boxes of different heights only looking approximately aligned.
+        const int foldedY = (full.getHeight() - DS::rowH) / 2;
+        nameLabel.setBounds (nameX, foldedY, nameW, DS::rowH);
+    }
+    else
+    {
+        nameLabel.setBounds (nameX, 0, nameW, full.getHeight()); // vertically centred by the label's own Justification::centredLeft
+    }
+}
+
+void TrackHeaderComponent::layoutColumn3 (juce::Rectangle<int> full)
+{
     // Ableton Geometry directive: ABSOLUTE, hardcoded pixel math — no
     // FlexBox/relative-percentage builders. Column 3's own bounds are a
     // fixed (col3Width x col3Height) block starting 1px past the Column 2/3
     // divider hairline; every child position below is literal integer
     // arithmetic within THAT block's local coordinate space, exactly per
     // spec (comments show the same math the directive itself specified).
+    //
+    // Immutable Column Widths directive: this method is now the ONE place
+    // Column 3's geometry is computed, called from BOTH layoutExpanded() and
+    // layoutCollapsed() with identical results — folding a track can never
+    // shift Box A/B/C, the meter, or shrink Column 3's width, since there is
+    // no second hand-maintained copy of these numbers left to drift.
     constexpr int col3Width  = DS::col3Width;  // 119 — height is full.getHeight() now, see the Meter comment below
     const int col3X = DS::column2Right + 1;    // 181 — 1px past the divider line
 
@@ -1330,18 +1380,24 @@ void TrackHeaderComponent::layoutExpanded (juce::Rectangle<int> full)
     constexpr int meterVerticalPad = 3;
     meterBounds = { col3X + col3Width - 10 - 7, meterVerticalPad, 7, full.getHeight() - meterVerticalPad * 2 };
 
-    // Row 1 (y = 4 — 2px Breathing Room directive: identical startY to
-    // Column 2's first row [2px stroke + 2px empty gap], so Box A's top
-    // edge forms a perfect horizontal line with Column 2's top row, with a
-    // real 2px of empty space above both, not flush against the stroke):
-    // Box A (Mute Plate, track number) | Box B (Solo) | Box C (Record —
-    // Ableton parity: only rendered when input isn't "No Input"). 4px gaps:
-    // Box A right edge (2+46=48) -> Box B at 52; Box B right edge (52+21=73)
-    // -> Box C at 77; Box C right edge (77+21=98) -> Meter at 102
+    // Row 1: Box A (Mute Plate, track number) | Box B (Solo) | Box C (Record
+    // — Ableton parity: only rendered when input isn't "No Input"). 4px
+    // gaps: Box A right edge (2+46=48) -> Box B at 52; Box B right edge
+    // (52+21=73) -> Box C at 77; Box C right edge (77+21=98) -> Meter at 102
     // (col3X + 119 - 17 = col3X + 102) — the exact 4px gap the directive
     // calls out.
-    constexpr int col3Row1Y = 4;
-    constexpr int col3Row2Y = col3Row1Y + 13 + 4; // Row 1 bottom + 4 = 21
+    //
+    // Expanded: y=4 (2px Breathing Room directive — identical startY to
+    // Column 2's first row [2px stroke + 2px empty gap], so Box A's top
+    // edge forms a perfect horizontal line with Column 2's top row).
+    //
+    // Absolute Y-Axis Centering directive: folded state does NOT reuse that
+    // startY=4 — it's improving on Ableton's cramped collapsed rows, not
+    // matching them, so Box A/B/C centre on the actual (breathable) folded
+    // track height instead, landing on the same 13px band Column 1's name
+    // label and Column 2's dummy box both centre on too.
+    const int col3Row1Y = isCollapsed ? (full.getHeight() - 13) / 2 : 4;
+    const int col3Row2Y = col3Row1Y + 13 + 4; // Row 1 bottom + 4 — expanded-only (Row 2 is hidden when folded)
 
     mutePlate.setBounds  (col3X + 2,  col3Row1Y, 46, 13); // Box A
     soloButton.setBounds (col3X + 52, col3Row1Y, 21, 13); // Box B
@@ -1350,11 +1406,14 @@ void TrackHeaderComponent::layoutExpanded (juce::Rectangle<int> full)
         recordArmButton.setBounds (col3X + 77, col3Row1Y, 21, 13); // Box C
     // else: "No Input" & Monitor Logic directive — Box C is hidden entirely,
     // its slot stays blank (NOT absorbed by Box B, which stays fixed-width
-    // per the mathematically-locked grid).
+    // per the mathematically-locked grid — Protect Column 3 Spacing directive).
 
     // Row 2: Volume directly under Box A at the SAME width; Pan — PNG Pivot
     // directive's flat drag-box, not a rotary knob — spans exactly the
     // Box B + gap + Box C width (21 + 4 + 21 = 46) directly under them.
+    // Harmless to set bounds even when collapsed (volumeSlider/panBar are
+    // hidden via applyCollapsedVisibility() in that state) — one geometry
+    // source, whether or not the children are currently visible.
     volumeSlider.setBounds (col3X + 2,  col3Row2Y, 46, 13);
     panBar.setBounds       (col3X + 52, col3Row2Y, 46, 13);
 
@@ -1367,35 +1426,31 @@ void TrackHeaderComponent::layoutExpanded (juce::Rectangle<int> full)
 
 void TrackHeaderComponent::layoutCollapsed (juce::Rectangle<int> full)
 {
-    // Single sleek strip: fold arrow | colour strip | name | mute plate | S | R |
-    // thin vertical meter. Everything on one line, vertically centred. paint()'s
-    // separators are gated on isCollapsed directly — nothing to reset here.
-    meterBounds = full.removeFromRight (meterStripW).reduced (0, DS::collapsedPadY);
+    // Immutable Column Widths directive: folding NEVER changes the 3-column
+    // grid's x/width boundaries (0/90/180/300) — the old single-strip
+    // micro-state (Column 1 stretching to swallow Column 2's space) is
+    // gone. Column 1 and Column 3 reuse the EXACT same layout code the
+    // expanded state runs (see layoutIdentityColumn()/layoutColumn3()), so
+    // there is nothing left to drift out of sync when toggling the fold.
+    layoutIdentityColumn (full);
 
-    auto area = full.reduced (DS::collapsedPadX, DS::collapsedPadY);
+    // ---- Column 2 (Routing): folded placeholder ---------------------------
+    // Column 2 Folded Placeholder directive: Ableton doesn't leave this
+    // column empty when folded — it keeps a single blank, disabled
+    // ComboBox-styled box in place to hold the grid line. Width/x stay
+    // identical to the expanded state's row (same left-divider-clearance
+    // math), but the Absolute Y-Axis Centering directive means the Y
+    // position does NOT reuse the expanded startY=4 any more — it centres
+    // on the actual folded track height instead, landing on the same 13px
+    // band Column 1's name label and Column 3's Box A/B/C both centre on.
+    // paint()/paintOverChildren() draw its fill/border, gated on isCollapsed
+    // — there's no live ComboBox component here to draw itself.
+    auto col2 = full.withX (DS::column1Right).withWidth (DS::column2Right - DS::column1Right)
+                    .reduced (DS::col2Inset)
+                    .withTrimmedLeft (DS::separatorW);
+    const int foldedY = (full.getHeight() - DS::rowH) / 2;
+    collapsedRoutingPlaceholder = { col2.getX(), foldedY, col2.getWidth(), DS::rowH };
 
-    foldArrow.setBounds (area.removeFromLeft (foldArrowW));
-    {
-        // Collapsed micro-state has no "Column 1" to fully fill (it's one
-        // single-line strip) — reuse column1Bounds for a thin accent strip
-        // instead, same as the old pre-mockup expanded look.
-        auto stripSlot = area.removeFromLeft (colourStripW);
-        column1Bounds = stripSlot;
-        area.removeFromLeft (DS::nameToStripGap);
-    }
-
-    // Compact mixer controls hug the right edge; name takes whatever's left.
-    const int plateW = DS::collapsedPlateW;
-    const int srW    = DS::collapsedSRW;
-    const int gap    = DS::collapsedGap;
-
-    auto rightCluster = area.removeFromRight (plateW + gap + srW + gap + srW);
-    mutePlate.setBounds (rightCluster.removeFromLeft (plateW));
-    rightCluster.removeFromLeft (gap);
-    soloButton.setBounds (rightCluster.removeFromLeft (srW));
-    rightCluster.removeFromLeft (gap);
-    recordArmButton.setBounds (rightCluster.removeFromLeft (srW));
-
-    area.removeFromRight (gap);
-    nameLabel.setBounds (area);
+    // ---- Column 3 (Mini-Mixer): x=[181,300) --------------------------------
+    layoutColumn3 (full);
 }
