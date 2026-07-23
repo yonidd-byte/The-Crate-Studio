@@ -1,5 +1,6 @@
 #include "UniversalDeviceChainComponent.h"
 #include "TheCrateLookAndFeel.h"
+#include "../Engine/CrateSandboxBridge.h"
 
 #include <algorithm>
 
@@ -998,7 +999,25 @@ private:
     void updateNativeUiButtonEnablement()
     {
         auto* processor = plugin.getWrappedAudioProcessor();
-        showNativeUiButton.setEnabled (processor != nullptr && processor->hasEditor());
+        const bool hasWrappedEditor = processor != nullptr && processor->hasEditor();
+
+        // Step 32 (Exorcise the Ghost & Fix the HWND) directive — the
+        // actual root cause of the "UI Blackout" investigation: this was
+        // the REAL reason nothing ever rendered. CrateSandboxBridge never
+        // wraps a local juce::AudioProcessor at all (the real one lives
+        // entirely inside the sandboxed CHILD process — see this class's
+        // own architecture doc comment) — getWrappedAudioProcessor()
+        // returns nullptr for it unconditionally (te::Plugin's own
+        // default), which permanently disabled this button. Clicking a
+        // disabled JUCE button never fires onClick — plugin.
+        // showWindowExplicitly() was never actually being called, so
+        // CrateEditorComponent (Step 29's createEditor() override) was
+        // never even constructed, let alone reaching a black/blank state.
+        // A sandboxed plugin DOES provide a real editor — it just doesn't
+        // route through getWrappedAudioProcessor() to prove that.
+        const bool isSandboxed = dynamic_cast<CrateSandboxBridge*> (&plugin) != nullptr;
+
+        showNativeUiButton.setEnabled (hasWrappedEditor || isSandboxed);
     }
 
 public:

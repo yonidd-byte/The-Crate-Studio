@@ -14,6 +14,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_subdirectory(modules/JUCE)
 add_subdirectory(modules/tracktion_engine)
 
+# Step 20 (Plugin Isolation & Thread Sanitization) directive: a trivial,
+# guaranteed-inert VST3 used only to isolate whether the Time-Slip Engine
+# child-process hang is specific to Rift Filter Lite's own DSP, or a bug in
+# this codebase's own lookahead IPC/threading plumbing — see
+# Source/TestPlugins/CrateBulletproofTest/PluginProcessor.h's own doc comment.
+add_subdirectory(Source/TestPlugins/CrateBulletproofTest)
+
 # ---------------------------------------------------------------------------
 # Anticipative FX (Shadow Freezing) directive — moodycamel::ReaderWriterQueue,
 # the single-producer/single-consumer wait-free ring buffer CrateAnticipativeWrapper
@@ -61,6 +68,7 @@ target_sources(TheCrateStudio PRIVATE
     Source/CrateWorkflowManager.cpp
     Source/CrateStressTest.cpp
     Source/Engine/CrateAnticipativeWrapper.cpp
+    Source/Engine/CrateSandboxBridge.cpp
     Source/UI/TransportBar.cpp
     Source/UI/TimelineComponent.cpp
     Source/UI/MixerComponent.cpp
@@ -121,3 +129,46 @@ target_compile_definitions(TheCrateStudio PUBLIC JUCE_ASIO=1)
 target_include_directories(TheCrateStudio PRIVATE "C:/SDKs/ASIOSDK/common")
 target_include_directories(TheCrateStudio PRIVATE "C:/SDKs/ASIOSDK/host")
 target_include_directories(TheCrateStudio PRIVATE "C:/SDKs/ASIOSDK/host/pc")
+
+# ---------------------------------------------------------------------------
+# Plugin Sandboxing Step 5 (The Headless IPC Host Skeleton) directive:
+# CrateSandbox is the out-of-process plugin host — a SEPARATE, headless
+# console executable (juce_add_console_app, not juce_add_gui_app), built
+# side-by-side with TheCrateStudio from this same CMake configure. It links
+# tracktion::tracktion_engine (per directive) but deliberately none of this
+# app's own UI sources or the GUI-only JUCE modules TheCrateStudio links
+# (juce_gui_extra, juce_opengl, TheCrateStudioAssets) — it never creates a
+# window. Note: tracktion::tracktion_engine's own module dependencies may
+# still transitively pull in juce_gui_basics (TE ships plugin-editor-hosting
+# code that depends on it even when unused) — that's unavoidable when
+# linking TE at all and does not affect this target's headless behaviour,
+# since juce_add_console_app builds it with the console subsystem and no
+# window is ever instantiated.
+# ---------------------------------------------------------------------------
+juce_add_console_app(CrateSandbox
+    BUNDLE_ID "com.thecrate.cratesandbox"
+    PRODUCT_NAME "Crate Sandbox"
+    COMPANY_NAME "The Crate"
+)
+
+juce_generate_juce_header(CrateSandbox)
+
+target_sources(CrateSandbox PRIVATE
+    Source/Sandbox/Main.cpp
+)
+
+target_compile_definitions(CrateSandbox PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_PLUGINHOST_VST3=1
+    JUCE_PLUGINHOST_VST=0
+    TRACKTION_UNIT_TESTS=0
+)
+
+target_link_libraries(CrateSandbox PRIVATE
+    tracktion::tracktion_engine
+    juce::juce_events
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_lto_flags
+    juce::juce_recommended_warning_flags
+)

@@ -411,6 +411,23 @@ private:
     // can't safely have two independent consumers).
     void resetDiskCache();
 
+    // Step 37 (The Debt Sweep) fix: all three call sites that used to be
+    // `worker->stopThread (2000); worker.reset();` never checked
+    // stopThread()'s return value. writeBlockToDisk()/readBlockFromDisk()
+    // do genuine BLOCKING disk I/O on this exact worker thread (by design —
+    // that's the entire point of the disk-overflow tier) — a project folder
+    // on a network share, a spun-down external drive, or a failing SSD can
+    // legitimately make that I/O take longer than 2 seconds. Destroying a
+    // juce::Thread whose run() hasn't actually returned yet is undefined
+    // behaviour (the OS thread can still be executing this object's own
+    // member functions, including touching `owner`, while the owning
+    // std::unique_ptr's destructor runs) — a real use-after-free risk, not
+    // a theoretical one, if the first stopThread() call ever times out.
+    // This gives it one more, longer chance before proceeding regardless
+    // (still bounded — never an infinite wait — but no longer silently
+    // proceeding on the very first timeout).
+    void stopWorkerSafely();
+
     // Lock-Free Spinlock directive: the ONE place that calls
     // innerPlugin->applyToBuffer() from the audio thread — used by the Zero
     // Latency Override, Cache Invalidation, and Cache Miss paths alike, so

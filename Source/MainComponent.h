@@ -145,6 +145,20 @@ private:
     // the FileDragAndDropTarget interface itself, so this one stays private.
     void routeDragHover (const juce::StringArray& files, int x, int y);
 
+   #if JUCE_DEBUG
+    // Step 10 (Cross-Process Window Reparenting) directive: debug-only test
+    // harness for Ctrl+Alt+Shift+G — see keyPressed()'s own comment.
+    void showSandboxEditorTestWindow();
+
+    // Step 12.1 (The Violent Crash Test) directive: debug-only, for
+    // Ctrl+Alt+Shift+K — defined AFTER SandboxEditorTestWindow's own full
+    // definition in the .cpp (same reason showSandboxEditorTestWindow()'s
+    // definition lives there too — keyPressed() itself is defined BEFORE
+    // that class, so it can only ever call forward-declared functions, not
+    // dereference the concrete type directly).
+    void triggerSandboxCrashTest();
+   #endif
+
     // Declaration order matters: members are destroyed in reverse declaration order.
     // transportBar/arrangement/mixer/deviceChain hold te::Edit& into workflow's
     // Edit, so they must be declared AFTER workflow to be destroyed BEFORE it
@@ -205,6 +219,29 @@ private:
     // Inspector shown, Arrangement + Browser hidden). Reset to false by
     // rebuildUIForEdit() so a project Load always lands back in Arrangement.
     bool showingMidiEditor = false;
+
+   #if JUCE_DEBUG
+    // Step 10 (Cross-Process Window Reparenting) directive: forward-declared
+    // here, fully defined in MainComponent.cpp — needs to be the REAL
+    // derived type (not just juce::DocumentWindow) so showSandboxEditorTestWindow()
+    // can reach its hwndComponent/onClosed members through the unique_ptr.
+    class SandboxEditorTestWindow;
+
+    // Debug-only test harness window(s) — see keyPressed()'s own comment
+    // for the hidden hotkey and CrateSandboxBridge's own doc comment for
+    // the embedding mechanism. Not Edit-bound (each holds only a
+    // te::Plugin::Ptr, independent of any Edit's own lifetime), so no
+    // rebuildUIForEdit() teardown needed.
+    //
+    // Step 15.2 (The Shared Host Engine) directive: an OwnedArray, not a
+    // single unique_ptr — the 3-Plugin Tenancy Test needs multiple
+    // concurrent test windows open at once (one per tenant bridge) to
+    // visually verify all three, which the original "one test instance at
+    // a time" single-window guard made impossible. Each window removes
+    // itself from this array (and is destroyed) via its own onClosed
+    // callback.
+    juce::OwnedArray<SandboxEditorTestWindow> sandboxEditorTestWindows;
+   #endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

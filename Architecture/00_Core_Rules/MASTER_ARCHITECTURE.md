@@ -75,6 +75,8 @@ Four zones. Two of them collapse to zero. That is the whole DAW.
 
 *The smartest plugin and sample engine in the world. This is our moat.*
 
+> **Cross-reference:** this section covers the browser/UX-facing "Crate Brain" (scanning, tagging, semantic search). The engine-level sandboxing brain that shares this name — `PluginHealthRegistry`, `SandboxRouter` ("The Warden"), the Cryosleep warm pool, and the rest of the out-of-process plugin-hosting architecture — is documented separately in `Docs/MASTER_ARCHITECTURE.md` (Phases 1-4).
+
 ### Features
 
 | Feature | Description |

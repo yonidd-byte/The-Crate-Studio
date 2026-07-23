@@ -25,8 +25,7 @@ CrateAnticipativeWrapper::~CrateAnticipativeWrapper()
     // streams — it's the ONLY thing that ever reads/writes them, and
     // resetting them while it could still be mid-call would be a real
     // use-after-free, not a theoretical one.
-    if (worker != nullptr)
-        worker->stopThread (2000);
+    stopWorkerSafely();
 
     // Disk-Backed Shadow Bouncing directive: same belt-and-suspenders
     // reasoning as the timer/worker above — close the streams explicitly.
@@ -201,11 +200,8 @@ void CrateAnticipativeWrapper::initialise (const te::PluginInitialisationInfo& i
     // touching bufferPool/the queues it may currently be reading/writing —
     // resizing bufferPool out from under a running ShadowWorker would be a
     // genuine use-after-resize race, not a theoretical one.
-    if (worker != nullptr)
-    {
-        worker->stopThread (2000);
-        worker.reset();
-    }
+    stopWorkerSafely();
+    worker.reset();
 
     // Safety (continued): close any stream left over from a previous
     // initialise() — shadowCacheFile itself (just a path descriptor, not a
@@ -331,11 +327,8 @@ void CrateAnticipativeWrapper::deinitialise()
     // releasing the pool — the worker calls innerPlugin->applyToBuffer() and
     // touches bufferPool, so it must be fully stopped first or this is a
     // straightforward use-after-deinitialise / use-after-free race.
-    if (worker != nullptr)
-    {
-        worker->stopThread (2000);
-        worker.reset();
-    }
+    stopWorkerSafely();
+    worker.reset();
 
     if (innerPlugin != nullptr)
         innerPlugin->deinitialise();
@@ -600,6 +593,27 @@ bool CrateAnticipativeWrapper::readBlockFromDisk (juce::AudioBuffer<float>& buff
 
     ++diskReadBlockIndex;
     return true;
+}
+
+void CrateAnticipativeWrapper::stopWorkerSafely()
+{
+    if (worker == nullptr)
+        return;
+
+    if (worker->stopThread (2000))
+        return;
+
+    // First attempt timed out — the worker is very likely mid-blocking-I/O
+    // (see this method's own doc comment in the header). Log loudly (this
+    // should be rare) and give it one more, longer chance rather than
+    // proceeding to worker.reset() against a thread that may still be
+    // executing. Still bounded — never an infinite wait.
+    juce::Logger::writeToLog ("CrateAnticipativeWrapper: ShadowWorker did not stop within 2000ms "
+                               "— likely blocked in disk I/O. Waiting up to 5000ms more before proceeding.");
+
+    if (! worker->stopThread (5000))
+        juce::Logger::writeToLog ("CrateAnticipativeWrapper: ShadowWorker STILL did not stop after a further "
+                                   "5000ms wait. Proceeding regardless — investigate a stuck disk read/write.");
 }
 
 void CrateAnticipativeWrapper::resetDiskCache()

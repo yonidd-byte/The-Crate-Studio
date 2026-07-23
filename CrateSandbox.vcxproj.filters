@@ -1,106 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\Main.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\MainComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\CrateWorkflowManager.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\CrateStressTest.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\Engine\CrateAnticipativeWrapper.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\Engine\CrateSandboxBridge.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\TransportBar.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\TimelineComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\MixerComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\MixerStrip.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\MasterStrip.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\InsertsRackComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\UniversalDeviceChainComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\SettingsComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\PluginBrowserComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\BrowserComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\CrateMixerLookAndFeel.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\HardwareSlotLookAndFeel.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\GhostButtonLookAndFeel.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\FlatGridComboLookAndFeel.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\CrateValueBox.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\CrateFoldArrow.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\PluginSlotComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\PluginWindow.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\TheCrateLookAndFeel.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\AutomationLaneComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\TrackHeaderComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\ArrangementComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\TimeRulerComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\CratePianoRollComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\CrateMidiInspectorComponent.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\PianoRollExpressionLane.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\PianoRollArticulationLane.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\UI\CrateTrackInspectorComponent.cpp">
+    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\Source\Sandbox\Main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules\tracktion_engine\tracktion_engine_airwindows_1.cpp">
@@ -205,23 +106,20 @@
     <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\tracktion_engine\modules\tracktion_graph\tracktion_graph.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\User\Desktop\The Crate Studio\modules\JUCE\modules\juce_opengl\juce_opengl.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_artefacts\JuceLibraryCode\JuceHeader.h">
+    <ClInclude Include="C:\Users\User\Desktop\The Crate Studio\CrateSandbox_artefacts\JuceLibraryCode\JuceHeader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="C:\Users\User\Desktop\The Crate Studio\CMakeFiles\9fd2f0997c6bfe93327691e4d7468c3c\JuceHeader.h.rule">
+    <CustomBuild Include="C:\Users\User\Desktop\The Crate Studio\CMakeFiles\b31248bd37f95d3b136e60acf3bf170a\JuceHeader.h.rule">
       <Filter>CMake Rules</Filter>
     </CustomBuild>
     <CustomBuild Include="C:\Users\User\Desktop\The Crate Studio\CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
-    <Object Include="C:\Users\User\Desktop\The Crate Studio\TheCrateStudio_rc_lib.dir\$(Configuration)\TheCrateStudio_resources.res">
+    <Object Include="C:\Users\User\Desktop\The Crate Studio\CrateSandbox_rc_lib.dir\$(Configuration)\CrateSandbox_resources.res">
       <Filter>Object Libraries</Filter>
     </Object>
   </ItemGroup>

@@ -36,6 +36,15 @@ class CrateStressTest
 public:
     static void runExtremeLoadTest (tracktion::engine::Edit& edit);
 
+    // Step 9 (The Multi-Process Scalability Stress Test) directive: 50
+    // CONCURRENT CrateSandboxBridge/CrateSandbox.exe pairs, each hosting a
+    // real VST3, each running its own continuous Step 8 parameter sweep —
+    // proving the Hybrid Sync architecture (and, as of this step, the
+    // per-instance IPC naming fix it REQUIRED — see CrateSandboxBridge's own
+    // doc comment) scales to a professional-session-sized plugin count
+    // rather than the single-instance case every step up to now tested.
+    static void runSandboxScaleTest (tracktion::engine::Edit& edit);
+
 private:
     CrateStressTest() = delete; // static-only utility, never instantiated
 };

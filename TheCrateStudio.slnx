@@ -25,6 +25,19 @@
 	<Project Path="modules/tracktion_engine/examples/Benchmarks/Benchmarks_rc_lib.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="8c7b9118-74ec-3912-b05e-649bac3a6457">
 		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
 	</Project>
+	<Project Path="Source/TestPlugins/CrateBulletproofTest/CrateBulletproofTest_rc_lib.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="e280be6a-bd77-3eec-a725-542fe8d7c285">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="Source/TestPlugins/CrateBulletproofTest/CrateBulletproofTest_vst3_helper.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="7625f047-5f60-31b6-9f80-470c1b0de705">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="CrateSandbox.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="3cafe01b-aaa7-3d66-9ae0-4be3b060746d">
+		<BuildDependency Project="CrateSandbox_rc_lib.vcxproj"/>
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="CrateSandbox_rc_lib.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="2b2c133e-f6b6-3163-849b-8de582e03ad5">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
 	<Project Path="modules/tracktion_engine/examples/DemoRunner/DemoRunner.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="0ea91c60-3a94-3075-968e-37662470cfd3">
 		<BuildDependency Project="modules/tracktion_engine/examples/DemoRunner/DemoRunnerBinaryData.vcxproj"/>
 		<BuildDependency Project="modules/tracktion_engine/examples/DemoRunner/DemoRunner_rc_lib.vcxproj"/>
@@ -75,6 +88,11 @@
 		<Project Path="ALL_BUILD.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="ee886e02-b8ab-3823-bc7b-3d644a53f061" DefaultStartup="true">
 			<BuildDependency Project="modules/tracktion_engine/examples/Benchmarks/Benchmarks.vcxproj"/>
 			<BuildDependency Project="modules/tracktion_engine/examples/Benchmarks/Benchmarks_rc_lib.vcxproj"/>
+			<BuildDependency Project="Source/TestPlugins/CrateBulletproofTest/CrateBulletproofTest.vcxproj"/>
+			<BuildDependency Project="Source/TestPlugins/CrateBulletproofTest/CrateBulletproofTest_VST3.vcxproj"/>
+			<BuildDependency Project="Source/TestPlugins/CrateBulletproofTest/CrateBulletproofTest_rc_lib.vcxproj"/>
+			<BuildDependency Project="CrateSandbox.vcxproj"/>
+			<BuildDependency Project="CrateSandbox_rc_lib.vcxproj"/>
 			<BuildDependency Project="modules/tracktion_engine/examples/DemoRunner/DemoRunner.vcxproj"/>
 			<BuildDependency Project="modules/tracktion_engine/examples/DemoRunner/DemoRunnerBinaryData.vcxproj"/>
 			<BuildDependency Project="modules/tracktion_engine/examples/DemoRunner/DemoRunner_rc_lib.vcxproj"/>
@@ -103,6 +121,25 @@
 			<Build Solution="RelWithDebInfo|*" Project="false"/>
 		</Project>
 		<Project Path="ZERO_CHECK.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="81825696-99e5-375e-8d27-cf1c28f5b760"/>
+	</Folder>
+	<Folder Name="/CrateBulletproofTest/">
+		<Project Path="Source/TestPlugins/CrateBulletproofTest/CrateBulletproofTest.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="6d2684fe-5824-3d81-be83-82a787640076">
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		</Project>
+		<Project Path="Source/TestPlugins/CrateBulletproofTest/CrateBulletproofTest_All.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="9e389b30-93ba-300e-ab59-06fa87cec092">
+			<BuildDependency Project="Source/TestPlugins/CrateBulletproofTest/CrateBulletproofTest_VST3.vcxproj"/>
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+			<Build Solution="Debug|*" Project="false"/>
+			<Build Solution="Release|*" Project="false"/>
+			<Build Solution="MinSizeRel|*" Project="false"/>
+			<Build Solution="RelWithDebInfo|*" Project="false"/>
+		</Project>
+		<Project Path="Source/TestPlugins/CrateBulletproofTest/CrateBulletproofTest_VST3.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="f5b612f7-d3ee-3c8d-9e9b-77a2ed30db5d">
+			<BuildDependency Project="Source/TestPlugins/CrateBulletproofTest/CrateBulletproofTest.vcxproj"/>
+			<BuildDependency Project="Source/TestPlugins/CrateBulletproofTest/CrateBulletproofTest_rc_lib.vcxproj"/>
+			<BuildDependency Project="Source/TestPlugins/CrateBulletproofTest/CrateBulletproofTest_vst3_helper.vcxproj"/>
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		</Project>
 	</Folder>
 	<Folder Name="/EngineInPluginDemo/">
 		<Project Path="modules/tracktion_engine/examples/EngineInPluginDemo/EngineInPluginDemo.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="d75a95a2-5f8c-37d5-82f1-84840287ea3e">

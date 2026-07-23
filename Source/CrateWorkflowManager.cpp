@@ -1,6 +1,8 @@
 #include "CrateWorkflowManager.h"
 #include "UI/PluginWindow.h"
 #include "Engine/CrateAnticipativeWrapper.h"
+#include "Engine/CrateSandboxBridge.h"
+#include "Engine/SandboxManager.h"
 
 #include <set>
 
@@ -84,6 +86,21 @@ CrateWorkflowManager::CrateWorkflowManager()
     // just called from host app code instead of vendored engine code.
     engine->getPluginManager().createBuiltInType<CrateAnticipativeWrapper>();
 
+    // Plugin Sandboxing Step 5 directive: register the structural bridge
+    // plugin the same way — registration doesn't mean any track carries one
+    // yet, just that the engine can construct it when something asks for
+    // xmlTypeName (the stress test's own verification, later steps' real
+    // per-plugin sandboxing).
+    engine->getPluginManager().createBuiltInType<CrateSandboxBridge>();
+
+    // Step 33 (Zero-Latency Warm Pooling / Cryosleep Architecture) directive:
+    // kicked off here, at app boot, specifically so the pool has real
+    // wall-clock time (each pooled process takes roughly the same
+    // process-spawn latency this whole feature exists to hide) to warm up
+    // WHILE the user is still looking at an empty project — not lazily on
+    // their first drag, which would defeat the entire point.
+    SandboxManager::getInstance().warmUpCryosleepPool();
+
     initialiseAudioDevice();
 
     edit = te::createEmptyEdit (*engine, juce::File());
@@ -153,9 +170,22 @@ void CrateWorkflowManager::loadPluginToSelectedTrack (const juce::PluginDescript
 
     audioTrack->pluginList.insertPlugin (plugin, -1, nullptr);
 
+    // Step 32 (Exorcise the Ghost & Fix the HWND) directive: same fix as
+    // UniversalDeviceChainComponent's own updateNativeUiButtonEnablement()
+    // and InsertsRackComponent's "Pop & Sync" click handler —
+    // getWrappedAudioProcessor() is always nullptr for a CrateSandboxBridge
+    // (the real AudioProcessor lives in the sandboxed CHILD process, never
+    // locally), which silently skipped auto-opening the UI for every
+    // sandboxed plugin loaded this way.
     if (auto* processor = plugin->getWrappedAudioProcessor())
+    {
         if (processor->hasEditor())
             plugin->showWindowExplicitly();
+    }
+    else if (dynamic_cast<CrateSandboxBridge*> (plugin.get()) != nullptr)
+    {
+        plugin->showWindowExplicitly();
+    }
 }
 
 bool CrateWorkflowManager::loadPluginOntoTrack (const juce::PluginDescription& description, te::Track& targetTrack, int insertIndex)
@@ -193,15 +223,23 @@ te::Plugin::Ptr CrateWorkflowManager::instantiateExternalPlugin (const juce::Plu
     if (edit == nullptr)
         return {};
 
-    // The TE-sanctioned path for instantiating an external (VST3/AU/etc.) plugin:
-    // PluginManager::createNewPlugin's ExternalPlugin::xmlTypeName branch internally
-    // calls ExternalPlugin::create(engine, desc) to build the initial ValueTree
-    // state, then constructs the ExternalPlugin from it. This is the same call TE's
-    // own test suite uses to load VST3s (tracktion_Plugins.test.cpp) — not a
-    // workaround, and not something PluginManager::createPlugin(Edit&, ValueTree&,
-    // bool) (a different, lower-level helper with no PluginDescription overload)
-    // would improve on.
-    auto plugin = edit->getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, description);
+    // Step 29 (Native Sandbox Interception) directive: this is now the ONLY
+    // door any plugin load may come through — SandboxManager consults the
+    // Health Registry and SandboxRouter (The Warden) before ever touching
+    // the real IPC bridge, exactly the same interception every earlier
+    // sandbox test harness this session already went through. What used to
+    // be a direct edit->getPluginCache().createNewPlugin (te::ExternalPlugin::
+    // xmlTypeName, description) call is now routed through the sandbox.
+    //
+    // Step 30 (Completing the Proxy Illusion) directive: passes the FULL
+    // description (not just its fileOrIdentifier) — this is what lets
+    // CrateSandboxBridge impersonate the target plugin's real name/vendor
+    // (see SandboxManager::createSandboxPlugin()'s PluginDescription
+    // overload and CrateSandboxBridge::setImpersonatedDescription()).
+    // SandboxManager::createSandboxPlugin() returns a te::Plugin::Ptr (a
+    // CrateSandboxBridge instance) with the exact same return contract this
+    // function already had.
+    auto plugin = SandboxManager::getInstance().createSandboxPlugin (*edit, description);
 
     if (plugin == nullptr)
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,

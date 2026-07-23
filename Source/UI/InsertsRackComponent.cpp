@@ -1,6 +1,7 @@
 #include "InsertsRackComponent.h"
 #include "PluginSlotComponent.h"
 #include "TheCrateLookAndFeel.h"
+#include "../Engine/CrateSandboxBridge.h"
 
 namespace
 {
@@ -197,9 +198,22 @@ void InsertsRackComponent::rebuildSlotsNow()
             if (onSlotSelected)
                 onSlotSelected (p);
 
+            // Step 32 directive: same fix as UniversalDeviceChainComponent's
+            // own updateNativeUiButtonEnablement() — getWrappedAudioProcessor()
+            // is always nullptr for a CrateSandboxBridge (the real
+            // AudioProcessor lives in the sandboxed CHILD process, never
+            // locally), which silently no-op'd this "Pop & Sync" click for
+            // every sandboxed plugin. See that method's own doc comment for
+            // the full explanation.
             if (auto* processor = p->getWrappedAudioProcessor())
+            {
                 if (processor->hasEditor())
                     p->showWindowExplicitly();
+            }
+            else if (dynamic_cast<CrateSandboxBridge*> (p) != nullptr)
+            {
+                p->showWindowExplicitly();
+            }
         };
 
         // Drag-and-drop from the Browser: resolve the dropped plugin's
