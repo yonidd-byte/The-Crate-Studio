@@ -5,7 +5,7 @@
 
 #include "TheCrateLookAndFeel.h"
 #include "FlatGridComboLookAndFeel.h"
-#include "CrateColors.h"
+#include "CrateTheme.h"
 #include "CrateDesignSystem.h"
 #include "CrateValueBox.h"
 #include "CrateFoldArrow.h"

@@ -1,5 +1,5 @@
 #include "MainComponent.h"
-#include "UI/CrateColors.h"
+#include "UI/CrateTheme.h"
 #include "CrateStressTest.h"
 
 #if JUCE_DEBUG
@@ -656,6 +656,22 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
         && key.getModifiers().isShiftDown())
     {
         triggerSandboxCrashTest();
+        return true;
+    }
+
+    // Step 74 (The Flight Recorder) directive, Task 2: same hidden/
+    // debug-only convention as the other shortcuts above, a separate key
+    // again — deliberately loads a real heavy plugin and floods it for
+    // 10 seconds to try to force the Airlock/IPC deadlock this whole
+    // session traced. If the app survives this key combo without
+    // freezing, the fix held; if it doesn't, %TEMP%\CrateFlightRecorder.crashlog
+    // has the exact sequence leading up to it.
+    if (key.getKeyCode() == (int) 'D'
+        && key.getModifiers().isCtrlDown()
+        && key.getModifiers().isAltDown()
+        && key.getModifiers().isShiftDown())
+    {
+        CrateStressTest::runAirlockDeadlockStressTest (workflow->getEdit());
         return true;
     }
    #endif

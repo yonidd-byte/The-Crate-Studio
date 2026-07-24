@@ -1,6 +1,6 @@
 #include "CrateFoldArrow.h"
 
-#include "CrateColors.h"
+#include "CrateTheme.h"
 #include "CrateDesignSystem.h"
 
 void CrateFoldArrow::paintButton (juce::Graphics& g, bool shouldDrawButtonAsHighlighted, bool)

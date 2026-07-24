@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 
-#include "CrateColors.h"
+#include "CrateTheme.h"
 
 /**
     Mute / Solo / Record / Input-monitor "invisible until active" console

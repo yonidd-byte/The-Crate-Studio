@@ -543,4 +543,157 @@ void CrateStressTest::runSandboxScaleTest (te::Edit& edit)
                                  [pollForAllConnected] { (*pollForAllConnected) (scaleTestConnectMaxAttempts); });
 }
 
+namespace
+{
+    // Step 74 (The Flight Recorder) directive, Task 2: hardcoded to the
+    // SAME real, heavy third-party plugin every live reproduction this
+    // whole session used — a synthetic tone-generator test double has no
+    // heavy internal recalculation to stress in the first place, and
+    // reproducing the Airlock/IPC deadlock requires a genuinely heavy
+    // third-party UI reacting to real parameter automation. Machine-local
+    // by nature (a dev-only harness, never shipped — see this file's own
+    // JUCE_DEBUG guard); skips cleanly if this exact path doesn't exist on
+    // whatever machine runs it.
+    const juce::String airlockStressPluginPath =
+        "C:\\Program Files\\Common Files\\VST3\\MeldaProduction\\EQ\\MAutoDynamicEq.vst3";
+
+    constexpr int airlockStressWindowMs        = 10000; // per directive: "10-second window"
+    constexpr int airlockStressTickMs          = 15;    // faster than any real human drag — deliberately worse than the real-world reproduction
+}
+
+// Step 74 (The Flight Recorder) directive, Task 2: the actual 10-second
+// flood — a real parameter burst (genuine AutomatableParameter::
+// setParameter() calls, which route through CrateSyncedParameter's own
+// parameterChanged() override into the real bridge.setParameterEvent()
+// IPC push, exactly the production path) alongside rapid display-scale
+// toggling (the one geometry-disturbance channel still available to the
+// HOST side under the current Pure Follower architecture — Step 65 made
+// all REAL resizing exclusively CHILD-driven, so this is the closest
+// re-creatable proxy for "the Host repeatedly asks the reparented HWND to
+// react to a geometry-adjacent change while the plugin's own UI is under
+// heavy load"). Self-perpetuating via juce::Timer::callAfterDelay, same
+// pattern as this file's own polling helpers above — never a blocking
+// loop on the message thread, which would defeat the entire point of a
+// test whose PASS condition is "the message thread never seizes up."
+void CrateStressTest::runAirlockDeadlockStressTickInternal (te::Plugin::Ptr bridgePlugin, double startMs,
+                                                             std::shared_ptr<std::function<void()>> selfHolder)
+{
+    auto* bridge = dynamic_cast<CrateSandboxBridge*> (bridgePlugin.get());
+
+    if (bridge == nullptr)
+        return; // torn down mid-test — stop rescheduling
+
+    const auto elapsedMs = juce::Time::getMillisecondCounter() - startMs;
+
+    if (elapsedMs > (double) airlockStressWindowMs)
+    {
+        const juce::String report = "\nCrateStressTest: Airlock Deadlock Stress Test — "
+                                     + juce::String (airlockStressWindowMs)
+                                     + "ms flood window complete. If this message is visible, the "
+                                       "message thread survived the whole run without seizing up.\n";
+        DBG (report);
+        juce::Logger::writeToLog (report);
+        return; // stop rescheduling — test ends; bridgePlugin's refcount drops when this lambda chain unwinds
+    }
+
+    // (a) Real parameter flood.
+    auto params = bridgePlugin->getAutomatableParameters();
+
+    if (! params.isEmpty())
+    {
+        juce::Random random;
+
+        // Several params per tick, not just one — matches "flood," not
+        // "trickle." dontSendNotification: this test cares about the real
+        // IPC/DSP/UI path (setParameter() -> parameterChanged() override
+        // -> bridge.setParameterEvent()), not redundant plain-JUCE UI
+        // repaint notifications on top of it.
+        for (int i = 0; i < 8; ++i)
+        {
+            auto* param = params[random.nextInt (params.size())];
+
+            if (param != nullptr)
+                param->setParameter (random.nextFloat(), juce::dontSendNotification);
+        }
+    }
+
+    // (b) Rapid display-scale toggling — see this function's own doc
+    // comment for why this stands in for a direct forced resize under the
+    // current Pure Follower architecture.
+    bridge->publishDisplayScaleFactor (((int) (elapsedMs / (double) airlockStressTickMs) % 2 == 0) ? 1.0f : 1.25f);
+
+    juce::Timer::callAfterDelay (airlockStressTickMs, [selfHolder] { (*selfHolder)(); });
+}
+
+void CrateStressTest::runAirlockDeadlockStressTest (te::Edit& edit)
+{
+    if (! juce::File (airlockStressPluginPath).existsAsFile())
+    {
+        DBG ("CrateStressTest::runAirlockDeadlockStressTest — plugin not found at "
+                 + airlockStressPluginPath + " on this machine, skipping.");
+        return;
+    }
+
+    auto stressTrack = edit.insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (edit), nullptr);
+
+    if (stressTrack == nullptr)
+    {
+        DBG ("CrateStressTest::runAirlockDeadlockStressTest — could not create a track, aborting.");
+        return;
+    }
+
+    auto bridgePlugin = SandboxManager::getInstance().createSandboxPlugin (edit, airlockStressPluginPath);
+
+    if (bridgePlugin == nullptr)
+    {
+        DBG ("CrateStressTest::runAirlockDeadlockStressTest — createSandboxPlugin() returned null, aborting.");
+        return;
+    }
+
+    stressTrack->pluginList.insertPlugin (bridgePlugin, -1, nullptr);
+
+    // Same connection-polling idiom as runSandboxScaleTest's own echo test
+    // above — the child needs real wall-clock time to launch and load a
+    // genuinely heavy third-party DLL.
+    auto pollForReady = std::make_shared<std::function<void (int)>> ();
+    std::weak_ptr<std::function<void (int)>> weakPoll = pollForReady;
+
+    *pollForReady = [bridgePlugin, weakPoll] (int attemptsLeft)
+    {
+        auto* bridge = dynamic_cast<CrateSandboxBridge*> (bridgePlugin.get());
+
+        if (bridge == nullptr)
+            return;
+
+        if (! bridge->isConnected())
+        {
+            if (attemptsLeft > 0)
+                if (auto strongPoll = weakPoll.lock())
+                    juce::Timer::callAfterDelay (250, [strongPoll, attemptsLeft] { (*strongPoll) (attemptsLeft - 1); });
+
+            return;
+        }
+
+        DBG ("CrateStressTest: Airlock Deadlock Stress Test — plugin connected; opening its real editor "
+             "(exercises SandboxAirlock's own createSlot()/reparenting path) and starting the flood.");
+
+        // Real editor window — the point is exercising the Airlock's
+        // actual reparenting path, not merely constructing the bridge.
+        bridgePlugin->showWindowExplicitly();
+
+        const auto startMs = juce::Time::getMillisecondCounter();
+        auto selfHolder = std::make_shared<std::function<void()>>();
+        te::Plugin::Ptr pluginForFlood = bridgePlugin;
+
+        *selfHolder = [pluginForFlood, startMs, selfHolder]
+        {
+            CrateStressTest::runAirlockDeadlockStressTickInternal (pluginForFlood, startMs, selfHolder);
+        };
+
+        (*selfHolder)();
+    };
+
+    (*pollForReady) (60); // 60 * 250ms = 15s connection budget — a real heavy DLL load can be slow
+}
+
 #endif // JUCE_DEBUG

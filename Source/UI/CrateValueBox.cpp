@@ -1,6 +1,6 @@
 #include "CrateValueBox.h"
 
-#include "CrateColors.h"
+#include "CrateTheme.h"
 #include "CrateDesignSystem.h"
 
 namespace

@@ -1,7 +1,7 @@
 #include "TrackHeaderComponent.h"
 #include "TheCrateLookAndFeel.h"
 #include "TrackColourEditor.h"
-#include "CrateColors.h"
+#include "CrateTheme.h"
 
 namespace
 {
@@ -880,7 +880,23 @@ void TrackHeaderComponent::paintOverChildren (juce::Graphics& g)
 
 bool TrackHeaderComponent::isInterestedInDragSource (const SourceDetails& details)
 {
-    return track != nullptr && details.description.toString().startsWith (pluginDragPrefix);
+    if (track == nullptr || ! details.description.toString().startsWith (pluginDragPrefix))
+        return false;
+
+    // Strict Track Hierarchy (MASTER_ARCHITECTURE 3.5): reject an
+    // instrument being dragged over an Audio track AT HOVER TIME — the
+    // drag cursor shows "no drop here" instead of inviting a drop that
+    // loadPluginOntoTrack()'s own authoritative gate would reject anyway.
+    // Same single verdict function both layers use — see
+    // CrateWorkflowManager::trackAcceptsInstrument()'s own doc comment.
+    const auto identifier = details.description.toString().fromFirstOccurrenceOf (pluginDragPrefix, false, false);
+
+    if (identifier.isNotEmpty())
+        if (auto desc = track->edit.engine.getPluginManager().knownPluginList.getTypeForIdentifierString (identifier))
+            if (desc->isInstrument && ! CrateWorkflowManager::trackAcceptsInstrument (*track))
+                return false;
+
+    return true;
 }
 
 void TrackHeaderComponent::itemDragEnter (const SourceDetails&)

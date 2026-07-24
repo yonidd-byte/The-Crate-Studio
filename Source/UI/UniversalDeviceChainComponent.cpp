@@ -1491,7 +1491,22 @@ void UniversalDeviceChainComponent::paintOverChildren (juce::Graphics& g)
 
 bool UniversalDeviceChainComponent::isInterestedInDragSource (const SourceDetails& details)
 {
-    return currentTrack != nullptr && details.description.toString().startsWith ("plugin_drag|");
+    if (currentTrack == nullptr || ! details.description.toString().startsWith ("plugin_drag|"))
+        return false;
+
+    // Strict Track Hierarchy (MASTER_ARCHITECTURE 3.5): same hover-time
+    // rejection as TrackHeaderComponent's own — see
+    // CrateWorkflowManager::trackAcceptsInstrument()'s doc comment for
+    // the single shared verdict this and loadPluginOntoTrack()'s
+    // authoritative gate both apply.
+    const auto identifier = details.description.toString().fromFirstOccurrenceOf ("plugin_drag|", false, false);
+
+    if (identifier.isNotEmpty())
+        if (auto desc = edit.engine.getPluginManager().knownPluginList.getTypeForIdentifierString (identifier))
+            if (desc->isInstrument && ! CrateWorkflowManager::trackAcceptsInstrument (*currentTrack))
+                return false;
+
+    return true;
 }
 
 void UniversalDeviceChainComponent::itemDragEnter (const SourceDetails&)
@@ -1558,7 +1573,17 @@ void UniversalDeviceChainComponent::showInstrumentMenu()
     // so its "+ Add Device" lists effects instead of the usual instrument-only
     // filter (see loadPluginOntoTrack()'s matching guard, which would reject
     // every single pick if this stayed instrument-only for Master).
-    const bool isMasterTrack = (currentTrack.get() == edit.getMasterTrack());
+    //
+    // Strict Track Hierarchy (MASTER_ARCHITECTURE 3.5): a plain AUDIO
+    // track gets the exact same effects-only treatment as Master now —
+    // loadPluginOntoTrack()'s new hierarchy gate rejects instruments on
+    // any track trackAcceptsInstrument() says no to, and a menu listing
+    // nothing but items that all error on pick is worse than useless.
+    // This also matches Ableton's own model precisely: "+" on an audio
+    // track's device chain lists audio effects, never instruments —
+    // instruments are what MIDI/Instrument tracks are FOR.
+    const bool listEffectsOnly = (currentTrack.get() == edit.getMasterTrack())
+                                    || ! CrateWorkflowManager::trackAcceptsInstrument (*currentTrack);
 
     std::vector<juce::PluginDescription> menuIdToDescription;
     juce::PopupMenu menu;
@@ -1568,8 +1593,9 @@ void UniversalDeviceChainComponent::showInstrumentMenu()
         // ONLY synths/instruments on this button — this is the "load an
         // instrument" entry point specifically (Ableton's own "+" on a MIDI
         // track's device chain does exactly this, never lists FX here) —
-        // except on Master, where it's the exact opposite (effects only).
-        if (desc.isInstrument == isMasterTrack)
+        // except on Master and plain Audio tracks, where it's the exact
+        // opposite (effects only, see listEffectsOnly above).
+        if (desc.isInstrument == listEffectsOnly)
             continue;
 
         menuIdToDescription.push_back (desc);
@@ -1578,8 +1604,8 @@ void UniversalDeviceChainComponent::showInstrumentMenu()
 
     if (menuIdToDescription.empty())
     {
-        menu.addItem (-1, isMasterTrack ? "No effects found - scan plugins first"
-                                        : "No instruments found - scan plugins first", false);
+        menu.addItem (-1, listEffectsOnly ? "No effects found - scan plugins first"
+                                          : "No instruments found - scan plugins first", false);
     }
 
     menu.showMenuAsync (juce::PopupMenu::Options(),

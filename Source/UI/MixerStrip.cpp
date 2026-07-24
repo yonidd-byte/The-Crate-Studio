@@ -1,6 +1,6 @@
 #include "MixerStrip.h"
 #include "TheCrateLookAndFeel.h"
-#include "CrateColors.h"
+#include "CrateTheme.h"
 #include "CrateDesignSystem.h"
 #include "PluginSlotComponent.h"
 #include "CrateSendSlot.h"

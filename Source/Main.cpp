@@ -2,6 +2,8 @@
 #include <tracktion_engine/tracktion_engine.h>
 #include "MainComponent.h"
 #include "UI/TheCrateLookAndFeel.h"
+#include "Engine/SandboxAirlock.h"
+#include "Engine/FlightRecorder.h"
 
 namespace te = tracktion::engine;
 
@@ -16,6 +18,13 @@ public:
 
     void initialise (const juce::String& commandLine) override
     {
+        // Step 74 (The Flight Recorder) directive, Task 1a: installed as
+        // the very first thing this process does — before any Engine,
+        // Window, or plugin-scan-relaunch logic below has a chance to
+        // fault. Cheap and allocation-free, safe to do unconditionally.
+        installFlightRecorderCrashHandler();
+        CRATE_FR_LOG ("LIFECYCLE", "Host process initialise() entered.");
+
         // Plugin Sandboxing directive: CrateEngineBehaviour::
         // canScanPluginsOutOfProcess() (CrateWorkflowManager.cpp) opts in to
         // out-of-process plugin scanning — this is the other half of that
@@ -39,6 +48,21 @@ public:
     {
         mainWindow = nullptr;
         juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
+
+        // Step 73 (Airlock HWND) directive: every AirlockHWNDComponent's
+        // own destructor already fire-and-forgets a destroySlot() request
+        // as mainWindow (and everything under it) tears down above — this
+        // is the one place left to actually stop the dedicated airlock
+        // thread itself, with a bounded wait rather than letting process
+        // exit hang on it indefinitely.
+        SandboxAirlock::getInstance().shutdown();
+
+        // Step 74 (The Flight Recorder) directive, Task 1c: normal,
+        // graceful exit — one of the three flush triggers. Last, after
+        // everything else has already torn down cleanly, so the log's
+        // final entries actually reflect a clean shutdown rather than
+        // being cut off mid-teardown.
+        FlightRecorder::getInstance().flushToDisk ("GRACEFUL_SHUTDOWN");
     }
 
     void systemRequestedQuit() override

@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 
-#include "CrateColors.h"
+#include "CrateTheme.h"
 
 /**
     Small, crisp "+" add-icon button — replaces a blurry juce::TextButton("+")

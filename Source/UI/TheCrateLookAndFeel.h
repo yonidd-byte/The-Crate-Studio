@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 
-#include "CrateColors.h"
+#include "CrateTheme.h"
 
 /**
     THE CRATE LOOK AND FEEL ENGINE — V2.0 UI/UX Master Manifesto, "Premium Dark

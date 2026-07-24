@@ -87,6 +87,7 @@ target_sources(TheCrateStudio PRIVATE
     Source/UI/CrateFoldArrow.cpp
     Source/UI/PluginSlotComponent.cpp
     Source/UI/PluginWindow.cpp
+    Source/UI/PluginWindowHeader.cpp
     Source/UI/TheCrateLookAndFeel.cpp
     Source/UI/AutomationLaneComponent.cpp
     Source/UI/TrackHeaderComponent.cpp
@@ -172,3 +173,19 @@ target_link_libraries(CrateSandbox PRIVATE
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
 )
+
+# Step 51 (Silent Crash Hardening) directive: /EHa (asynchronous/structured
+# exception handling), scoped ONLY to CrateSandbox — the untrusted,
+# already-disposable third-party plugin host process this whole sandbox
+# architecture exists to contain. Deliberately NOT applied to TheCrateStudio
+# (the main app): MSVC's default /EHsc model only catches C++ exceptions —
+# a __try/__except(EXCEPTION_EXECUTE_HANDLER) block around a raw hardware
+# fault (an access violation inside third-party VST3 code, e.g. during
+# getStateInformation()/setStateInformation()) does NOT actually catch
+# anything under /EHsc; it silently does nothing, giving a false sense of
+# safety. /EHa is what makes that catch real. Scoping it to this one target
+# keeps the change low-risk (a different exception model only affects this
+# already-isolated process, never the main app's own codegen/performance).
+if (MSVC)
+    target_compile_options(CrateSandbox PRIVATE /EHa)
+endif()

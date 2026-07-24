@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 
-#include "CrateColors.h"
+#include "CrateTheme.h"
 
 /**
     Premium "hardware slot" chrome for the Channel Strip's Routing controls

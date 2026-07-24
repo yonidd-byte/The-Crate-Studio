@@ -3,7 +3,7 @@
 #include "CrateSendSlot.h"
 #include "CrateCompressorPopup.h"
 #include "TheCrateLookAndFeel.h"
-#include "CrateColors.h"
+#include "CrateTheme.h"
 #include "AddIconButton.h"
 #include "SendBusUtils.h"
 

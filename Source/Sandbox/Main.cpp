@@ -1,9 +1,167 @@
 #include <JuceHeader.h>
 #include "../Engine/CrateIPCConstants.h"
+#include "../Engine/FlightRecorder.h"
 
 #include <cstring>
+#include <cstdlib>
 #include <vector>
 #include <unordered_map>
+
+// Step 51 (Silent Crash Hardening) directive: SEH-wrapped calls into the
+// two third-party VST3 entry points most likely to touch a plugin's own
+// internal state serialization — getStateInformation() (Continuous State
+// Sync / "Store A/B") and setStateInformation() (crash resurrection AND
+// the A/B live-restore channel). Kept as small, standalone free functions
+// with no local C++ objects requiring unwinding, deliberately — mixing a
+// __try/__except block with C++ destructor unwinding in the SAME function
+// is exactly the kind of thing MSVC's exception model can get wrong if
+// they're tangled together; isolating the SEH boundary into its own
+// minimal function sidesteps that entirely, regardless of exception model.
+// Requires /EHa (see CMakeLists.txt's own comment on why it's scoped to
+// ONLY this target) — under the default /EHsc, __except(EXCEPTION_EXECUTE_HANDLER)
+// does NOT catch a genuine hardware exception (an access violation) at
+// all; it would silently do nothing, which is worse than not having this
+// at all (a false sense of safety). A caught exception here means this
+// ONE call into third-party code faulted — it does NOT mean the plugin
+// instance's own internal state is trustworthy afterward; the caller is
+// expected to treat a false return as "this plugin may be poisoned," not
+// as "handled, business as usual."
+#if JUCE_WINDOWS
+static bool sehGetStateInformation (juce::AudioPluginInstance* plugin, juce::MemoryBlock& chunk)
+{
+    __try
+    {
+        plugin->getStateInformation (chunk);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+static bool sehSetStateInformation (juce::AudioPluginInstance* plugin, const void* data, int sizeInBytes)
+{
+    __try
+    {
+        plugin->setStateInformation (data, sizeInBytes);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+#else
+static bool sehGetStateInformation (juce::AudioPluginInstance* plugin, juce::MemoryBlock& chunk)
+{
+    plugin->getStateInformation (chunk);
+    return true;
+}
+
+static bool sehSetStateInformation (juce::AudioPluginInstance* plugin, const void* data, int sizeInBytes)
+{
+    plugin->setStateInformation (data, sizeInBytes);
+    return true;
+}
+#endif
+
+// Step 52 (The Anti-Zombie Auto-Respawn Protocol) directive, Task 1: the
+// SAME SEH isolation idiom, now around the REAL real-time entry point —
+// processBlock() — which is what AudioBridgeThread and LookaheadWorkerThread
+// actually call every block. This is the call site the user's own concern
+// (a corrupted DSP thread outputting maximum-level noise into a live PA)
+// is actually about; the getState/setStateInformation wrapping from Step 51
+// covers a real but different risk (state serialization faulting), not the
+// audio path itself. A caught fault here does NOT attempt to salvage
+// `buffer`'s contents — the caller is expected to overwrite it with silence
+// itself (see AudioBridgeThread::run()'s own comment), since whatever
+// partial/garbage samples the plugin wrote before faulting are exactly the
+// "maximum-level noise" scenario this whole protocol exists to prevent.
+#if JUCE_WINDOWS
+static bool sehProcessBlock (juce::AudioPluginInstance* plugin, juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+{
+    __try
+    {
+        plugin->processBlock (buffer, midi);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+#else
+static bool sehProcessBlock (juce::AudioPluginInstance* plugin, juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+{
+    plugin->processBlock (buffer, midi);
+    return true;
+}
+#endif
+
+#if JUCE_WINDOWS
+// Step 84 (White Box Diagnostics) directive, Round 4 — QA finding: a
+// screenshot showed BOTH ends of the same window at once — Melda's own
+// content clipped at its top-left AND a blank white gap at the
+// bottom-right of the SAME editor. That combination doesn't fit a pure
+// "outer window too big" theory alone (already checked — the Host's
+// setContentComponentSize() genuinely reaches the real native peer, see
+// PluginWindow.cpp's own matching diagnostic) — it fits a mismatch
+// between what THIS process's own JUCE peer reports as its size
+// (activeEditor->getWidth()/getHeight(), what gets published over IPC)
+// and where Melda's OWN actual native sub-view (created by its VST3
+// IPlugView, a child HWND JUCE creates one level under the peer) is
+// really positioned/sized. Enumerating the peer's real Win32 child
+// window tree — bypassing JUCE's own Component-level bookkeeping
+// entirely, same idea as PluginWindow.cpp's GetWindowRect check on the
+// Host side — is the one measurement that can show this directly instead
+// of guessing at VST3/JUCE internals from the outside.
+struct CrateChildRectLoggerContext
+{
+    HWND peerHwnd = nullptr;
+    juce::StringArray* lines = nullptr;
+};
+
+static BOOL CALLBACK crateEnumChildRectLogger (HWND hwnd, LPARAM lParam)
+{
+    auto* context = reinterpret_cast<CrateChildRectLoggerContext*> (lParam);
+
+    RECT screenRect {};
+    GetWindowRect (hwnd, &screenRect);
+
+    POINT topLeft { screenRect.left, screenRect.top };
+    ScreenToClient (context->peerHwnd, &topLeft); // relative to the PEER's own client area, not the screen
+
+    wchar_t className[128] {};
+    GetClassNameW (hwnd, className, 128);
+
+    context->lines->add ("child hwnd=0x" + juce::String::toHexString ((juce::pointer_sized_int) hwnd)
+                              + " class=" + juce::String (className)
+                              + " relativeToPeer=(" + juce::String ((int) topLeft.x) + "," + juce::String ((int) topLeft.y) + ")"
+                              + " size=" + juce::String (screenRect.right - screenRect.left) + "x" + juce::String (screenRect.bottom - screenRect.top));
+    return TRUE;
+}
+
+static void crateLogPeerNativeTree (HWND peerHwnd, void (*logFn) (const juce::String&))
+{
+    RECT windowRect {}, clientRect {};
+    GetWindowRect (peerHwnd, &windowRect);
+    GetClientRect (peerHwnd, &clientRect);
+
+    logFn ("CrateSandbox: DIAG WHITE BOX peer windowRect=" + juce::String (windowRect.right - windowRect.left) + "x" + juce::String (windowRect.bottom - windowRect.top)
+               + " clientRect=" + juce::String (clientRect.right - clientRect.left) + "x" + juce::String (clientRect.bottom - clientRect.top));
+
+    juce::StringArray childLines;
+    CrateChildRectLoggerContext context { peerHwnd, &childLines };
+    EnumChildWindows (peerHwnd, crateEnumChildRectLogger, (LPARAM) &context);
+
+    if (childLines.isEmpty())
+        logFn ("CrateSandbox: DIAG WHITE BOX peer has NO native child windows at all — Melda's own view isn't a separate HWND under this peer.");
+
+    for (auto& line : childLines)
+        logFn ("CrateSandbox: DIAG WHITE BOX " + line);
+}
+#endif
 
 /**
     Plugin Sandboxing Step 5 (The Headless IPC Host Skeleton) — entry point
@@ -169,7 +327,8 @@
     state the dead one had a moment before.
 */
 class CrateSandboxApplication : public juce::JUCEApplication,
-                                 private juce::Timer
+                                 private juce::Timer,
+                                 private juce::ComponentListener
 {
 public:
     CrateSandboxApplication() = default;
@@ -180,6 +339,14 @@ public:
 
     void initialise (const juce::String& commandLine) override
     {
+        // Step 74 (The Flight Recorder) directive, Task 1a: same
+        // installation as the Host's own initialise() — the CHILD process
+        // is exactly as likely (more so, given it's the one loading
+        // untrusted third-party VST3 binaries directly) to hit a fault
+        // this flight recorder needs to survive.
+        installFlightRecorderCrashHandler();
+        CRATE_FR_LOG ("LIFECYCLE", "Child process initialise() entered.");
+
         // Step 15.1/15.2 (Multi-Tenant IPC & The Shared Host Engine)
         // directive: checked FIRST, before any of the per-instance
         // ControlBlock mapping below even starts — a Shared Sandbox host is
@@ -371,10 +538,10 @@ public:
             // real reason for them to exist.
             if (! isCryosleeping)
             {
-                audioBridgeThread = std::make_unique<AudioBridgeThread> (*controlBlock, hostedPluginPtr, instanceId, pluginAccessLock);
+                audioBridgeThread = std::make_unique<AudioBridgeThread> (*controlBlock, hostedPluginPtr, instanceId, pluginAccessLock, isCorrupted);
                 audioBridgeThread->startThread (juce::Thread::Priority::high);
 
-                lookaheadWorkerThread = std::make_unique<LookaheadWorkerThread> (*controlBlock, hostedPluginPtr, instanceId, pluginAccessLock);
+                lookaheadWorkerThread = std::make_unique<LookaheadWorkerThread> (*controlBlock, hostedPluginPtr, instanceId, pluginAccessLock, isCorrupted);
                 lookaheadWorkerThread->startThread (juce::Thread::Priority::low);
             }
 
@@ -419,10 +586,10 @@ public:
                         // same construction/start a normal (non-pooled)
                         // launch already does in initialise(), just deferred
                         // to the moment there's real work for them.
-                        audioBridgeThread = std::make_unique<AudioBridgeThread> (*controlBlock, hostedPluginPtr, instanceId, pluginAccessLock);
+                        audioBridgeThread = std::make_unique<AudioBridgeThread> (*controlBlock, hostedPluginPtr, instanceId, pluginAccessLock, isCorrupted);
                         audioBridgeThread->startThread (juce::Thread::Priority::high);
 
-                        lookaheadWorkerThread = std::make_unique<LookaheadWorkerThread> (*controlBlock, hostedPluginPtr, instanceId, pluginAccessLock);
+                        lookaheadWorkerThread = std::make_unique<LookaheadWorkerThread> (*controlBlock, hostedPluginPtr, instanceId, pluginAccessLock, isCorrupted);
                         lookaheadWorkerThread->startThread (juce::Thread::Priority::low);
 
                         logToFile ("CrateSandbox: claimed from Cryosleep pool [instanceId=" + instanceId + "] — loading assigned plugin now.");
@@ -520,6 +687,55 @@ public:
         hostedPlugin.reset();
 
         sharedMemory.reset();
+
+        // Step 74 (The Flight Recorder) directive, Task 1c: normal,
+        // graceful exit — last, after everything else above has already
+        // torn down cleanly.
+        FlightRecorder::getInstance().flushToDisk ("GRACEFUL_SHUTDOWN");
+    }
+
+    // Step 81 (Event-Driven Geometry Publish) directive — QA finding:
+    // relying purely on this class's own 20ms poll (see timerCallback()'s
+    // own call site, below) to notice the editor's real size means the
+    // Host learns it up to one whole tick late in the worst case. Some
+    // heavy third-party UIs (Direct2D/custom-toolkit plugins in
+    // particular) don't finish laying themselves out on the exact tick
+    // addToDesktop() returns — attaching a juce::ComponentListener directly
+    // to the editor and republishing the INSTANT it reports its own real
+    // bounds closes that gap at the source, rather than waiting for the
+    // next poll to notice. Factored out so BOTH the poll (timerCallback())
+    // and this listener call the exact same throttled-store logic — never
+    // two copies that could drift apart.
+    void publishEditorSizeIfChanged (int currentWidth, int currentHeight)
+    {
+        if (controlBlock == nullptr || currentWidth <= 0 || currentHeight <= 0)
+            return; // Step 68's own established sentinel: 0 never means "a real size," only "not known yet"
+
+        if (currentWidth  == controlBlock->windowWidth.load (std::memory_order_relaxed)
+            && currentHeight == controlBlock->windowHeight.load (std::memory_order_relaxed))
+            return;
+
+        const auto nowOutboundMs = juce::Time::getMillisecondCounter();
+
+        if (nowOutboundMs - lastOutboundReportMs < (juce::uint32) outboundReportThrottleMs)
+            return;
+
+        lastOutboundReportMs = nowOutboundMs;
+        controlBlock->windowWidth.store (currentWidth, std::memory_order_relaxed);
+        controlBlock->windowHeight.store (currentHeight, std::memory_order_release);
+    }
+
+    // Step 81 directive: componentMovedOrResized() fires synchronously,
+    // on this SAME message thread, the instant the editor's own layout
+    // pass actually changes its bounds — registered once, right after
+    // addToDesktop() (see that call site's own comment), removed
+    // automatically by juce::Component's own destructor bookkeeping
+    // whenever activeEditor itself is destroyed, so there's no dangling-
+    // listener risk across a recreation.
+    void componentMovedOrResized (juce::Component& component, bool /*wasMoved*/, bool wasResized) override
+    {
+        if (wasResized && activeEditor != nullptr && &component == activeEditor.get())
+            publishEditorSizeIfChanged (activeEditor->getWidth(), activeEditor->getHeight());
     }
 
     // Step 10 directive: the ONLY thing this timer does — see class doc
@@ -590,6 +806,104 @@ public:
                 controlBlock->paramValueRevision.fetch_add (1, std::memory_order_release);
         }
 
+        // Step 39 (Live Telemetry) directive, Task 3: latency rarely
+        // changes after load, so this is a cheap "only act on genuine
+        // change" comparison every tick, same convention as windowWidth/
+        // Height. lastProcessBlockMicros itself is written directly by
+        // AudioBridgeThread (see its own comment) — nothing to do here for
+        // that field, it's already live in the shared ControlBlock.
+        if (hostedPlugin != nullptr)
+        {
+            const int32_t currentLatency = hostedPlugin->getLatencySamples();
+
+            if (currentLatency != controlBlock->pluginLatencySamples.load (std::memory_order_relaxed))
+                controlBlock->pluginLatencySamples.store (currentLatency, std::memory_order_relaxed);
+        }
+
+        // Step 39 (A/B Testing) directive, Task 4: a LIVE state restore
+        // request from the PARENT (the A/B toggle) — see
+        // ControlBlock::liveRestoreRequested's own doc comment for why this
+        // is a separate channel from the crash-resurrection payload.
+        // Guarded by the SAME bounded try-lock-or-skip idiom every other
+        // cross-thread touch of hostedPlugin already uses in this codebase
+        // (Step 37 fixed StateExtractionThread's own version of exactly
+        // this pattern) — never blocks this tick indefinitely, and simply
+        // tries again next tick if AudioBridgeThread currently holds the
+        // lock.
+        if (controlBlock->liveRestoreRequested.load (std::memory_order_acquire) && hostedPlugin != nullptr)
+        {
+            int attempts = 0;
+            bool acquired = false;
+
+            while (! (acquired = ! pluginAccessLock.test_and_set (std::memory_order_acquire)))
+            {
+                if (++attempts > 100)
+                    break;
+                juce::Thread::sleep (1);
+            }
+
+            if (acquired)
+            {
+                const int64_t size = controlBlock->liveRestoreStateSize.load (std::memory_order_relaxed);
+
+                if (size > 0 && size <= CrateIPC::ControlBlock::maxStateChunkBytes)
+                {
+                    // Store A/B Amnesia Fix (Step 53) directive: bounded
+                    // spin on liveRestoreLock, held for the duration of the
+                    // read (the sehSetStateInformation() call below copies
+                    // these bytes internally before returning, so holding
+                    // the lock just long enough to cover that one call is
+                    // sufficient) — see ControlBlock::liveRestoreLock's own
+                    // doc comment for the torn-buffer race this closes
+                    // (a fast A->B->A switch overwriting this SAME buffer
+                    // while it's still being read out of).
+                    int lockAttempts = 0;
+                    bool lockAcquired = false;
+
+                    while (! (lockAcquired = ! controlBlock->liveRestoreLock.test_and_set (std::memory_order_acquire)))
+                    {
+                        if (++lockAttempts > 100)
+                            break;
+                        juce::Thread::sleep (1);
+                    }
+
+                    if (lockAcquired)
+                    {
+                        // Step 51 (Silent Crash Hardening) directive: see
+                        // sehSetStateInformation()'s own doc comment. A caught
+                        // fault here is logged loudly rather than propagating a
+                        // raw access violation into an unhandled process crash
+                        // — the plugin instance may well be poisoned afterward
+                        // (this is NOT a claim that continuing to use it is
+                        // safe), but at minimum the sandbox process itself, and
+                        // every OTHER tenant it may be hosting, survives this
+                        // one bad restore attempt.
+                        if (sehSetStateInformation (hostedPlugin.get(), controlBlock->liveRestoreStateData, (int) size))
+                            logToFile ("CrateSandbox: DIAG A/B — applied live restore, " + juce::String (size) + " bytes via setStateInformation().");
+                        else
+                            logToFile ("CrateSandbox: setStateInformation() faulted (caught via SEH) during live restore — plugin instance may be unstable.");
+
+                        controlBlock->liveRestoreLock.clear (std::memory_order_release);
+                    }
+                    else
+                    {
+                        logToFile ("CrateSandbox: DIAG A/B — liveRestoreLock contended, skipping this restore request rather than risking a torn buffer.");
+                    }
+                }
+                else
+                {
+                    logToFile ("CrateSandbox: DIAG A/B — restore request seen but size invalid (" + juce::String (size) + " bytes), skipped.");
+                }
+
+                pluginAccessLock.clear (std::memory_order_release);
+                controlBlock->liveRestoreRequested.store (false, std::memory_order_release);
+            }
+            else
+            {
+                logToFile ("CrateSandbox: DIAG A/B — restore request seen but pluginAccessLock contended, retrying next tick.");
+            }
+        }
+
         // Step 23 (Geometry Polish & Dynamic Resize) directive: see
         // serviceTenant()'s matching comment — keeps windowWidth/
         // windowHeight live for as long as the editor exists, not just at
@@ -604,18 +918,75 @@ public:
             // evidence trail. Checked BEFORE the ordinary republish below,
             // so a corrupted snap-back is never mistaken for a legitimate
             // resize and forwarded to the PARENT.
+            //
+            // Step 57 (The Liar's Tolerance) directive — QA finding:
+            // MAutoDynamicEq (MeldaProduction) was falsely convicted as a
+            // fixed-size liar. Melda's own highly dynamic UI recalculates
+            // its internal grid on every resize and can legitimately
+            // settle a few pixels off from — or, by coincidence of its own
+            // grid math, land EXACTLY back on — the editor's original
+            // creation size, without that meaning the plugin ignores
+            // resize requests the way VoxDucker provably does. Pixel-exact
+            // equality was too strict a signal for "this is corruption/a
+            // liar" versus "this is normal grid rounding." recoveryGuardTolerancePixels
+            // (15, matching the user's own directive) widens BOTH checks
+            // below identically: "has moved away from creation size" now
+            // means "moved away by MORE than tolerance" (so a sub-tolerance
+            // wobble is never mistaken for a real resize in the first
+            // place), and "snapped back" means "within tolerance of
+            // creation size" (so a few pixels of legitimate grid rounding
+            // is silently accepted as the new bounds, never triggering
+            // teardown or a Liar's Penalty conviction).
             if (! editorHasEverResized)
             {
-                if (currentWidth != initialEditorWidth || currentHeight != initialEditorHeight)
+                if (std::abs (currentWidth - initialEditorWidth) > recoveryGuardTolerancePixels
+                        || std::abs (currentHeight - initialEditorHeight) > recoveryGuardTolerancePixels)
                     editorHasEverResized = true;
             }
-            else if (currentWidth == initialEditorWidth && currentHeight == initialEditorHeight)
+            else if (std::abs (currentWidth - initialEditorWidth) <= recoveryGuardTolerancePixels
+                         && std::abs (currentHeight - initialEditorHeight) <= recoveryGuardTolerancePixels)
             {
-                logToFile ("CrateSandbox: editor view snapped back to its exact creation size ("
-                               + juce::String (initialEditorWidth) + "x" + juce::String (initialEditorHeight)
+                logToFile ("CrateSandbox: editor view snapped back to within " + juce::String (recoveryGuardTolerancePixels)
+                               + "px of its creation size (" + juce::String (initialEditorWidth) + "x" + juce::String (initialEditorHeight)
+                               + ", currently " + juce::String (currentWidth) + "x" + juce::String (currentHeight)
                                + ") after being resized away from it — recreating the editor to recover.");
 
+                // Step 55 (The Liar's Penalty) directive — proven live by
+                // VoxDucker's own log: canResize=true, probed max
+                // 10000x10000, yet every real resize snapped straight back
+                // to 800x800. A plugin that CLAIMS resizability through
+                // every API surface (canResize(), checkSizeConstraint())
+                // but IGNORES applied sizes in practice is a liar this
+                // guard has just caught red-handed — the snap-back IS the
+                // proof. Without this, the recreated editor re-published
+                // canResize=true and re-probed the same lying min/max,
+                // trapping the user in an endless resize -> snap-back ->
+                // recreate loop with the black void visible the whole
+                // time. Latch it: this instance is FIXED-SIZE at its
+                // snapped-back dimensions from this moment on, forever —
+                // editorProvedFixedSizeLiar makes the upcoming recreation
+                // (and every later one) skip the probe and publish
+                // canResize=false + min==max, which is exactly the
+                // fingerprint the PARENT's own latch
+                // (PluginWindowContent::enforceResizeLimits()) and
+                // canResize tick already nuke the OS resize handle for.
+                // fixedSizeLiarDetected additionally tells the PARENT to
+                // record this UID into PluginHealthRegistry, so ALL future
+                // loads skip the plugin's false claims entirely.
+                editorProvedFixedSizeLiar = true;
+                controlBlock->fixedSizeLiarDetected.store (true, std::memory_order_release);
+                controlBlock->editorCanResize.store (false, std::memory_order_relaxed);
+                controlBlock->pluginMinWidth.store  (initialEditorWidth,  std::memory_order_relaxed);
+                controlBlock->pluginMinHeight.store (initialEditorHeight, std::memory_order_relaxed);
+                controlBlock->pluginMaxWidth.store  (initialEditorWidth,  std::memory_order_relaxed);
+                controlBlock->pluginMaxHeight.store (initialEditorHeight, std::memory_order_relaxed);
+
+                logToFile ("CrateSandbox: LIAR'S PENALTY — plugin claimed canResize=true but ignored applied sizes; "
+                               "forcing FIXED-SIZE at " + juce::String (initialEditorWidth) + "x" + juce::String (initialEditorHeight)
+                               + " for the rest of this session and flagging the PARENT to persist it.");
+
                 controlBlock->windowHandleReady.store (false, std::memory_order_release);
+
                 activeEditor.reset();
                 return; // next tick's windowHandleRequested branch below recreates it fresh
             }
@@ -653,25 +1024,83 @@ public:
                 }
                #endif
 
+                // Step 69 (Watchdog Strike System) directive — QA finding:
+                // a SINGLE SendMessageTimeout failure is NOT proof of a
+                // genuine hang. Root-caused via direct log evidence (Step
+                // 63/66/67's own investigation trail): an aggressive,
+                // continuous drag of the plugin's own internal resize
+                // handle can legitimately keep Melda's own heavy EQ-grid
+                // recalculation busy on this SAME message thread for a
+                // stretch approaching (or exceeding) the probe's own
+                // 500ms timeout — a temporarily bottlenecked, but
+                // perfectly healthy, plugin, not a frozen one. Convicting
+                // on the FIRST failure and immediately tearing the editor
+                // down mid-drag was the actual root cause of the original
+                // "Melda crashed" report: the Watchdog assassinated a busy
+                // plugin, and (before Step 68's own lifecycle-integrity
+                // fix) the resulting recreation left the Host holding
+                // stale HWND/dimension/throttle state, which is what
+                // turned a false-positive conviction into a real crash.
+                // Requiring editorHealthCheckStrikeThreshold CONSECUTIVE
+                // failures — at this check's own 1-second cadence, that's
+                // several full seconds of genuine unresponsiveness, far
+                // longer than any single heavy UI frame could plausibly
+                // stretch — before concluding "hung," while resetting the
+                // counter to 0 the instant a single successful probe comes
+                // back, is what actually distinguishes "busy" from "dead."
                 if (! editorResponsive)
+                    ++editorHealthCheckStrikes;
+                else
+                    editorHealthCheckStrikes = 0;
+
+                if (editorHealthCheckStrikes >= editorHealthCheckStrikeThreshold)
                 {
-                    logToFile ("CrateSandbox: editor HWND stopped responding to Win32 messages "
-                                   "(SendMessageTimeout failed) — recreating editor view to recover. "
-                                   "Audio processing untouched.");
+                    logToFile ("CrateSandbox: editor HWND failed " + juce::String (editorHealthCheckStrikes)
+                                   + " consecutive Win32 responsiveness checks (SendMessageTimeout) — recreating "
+                                     "editor view to recover. Audio processing untouched.");
+
+                    // Step 74 (The Flight Recorder) directive — QA finding:
+                    // this conviction path (a hung UI/message thread that
+                    // still passes the HOST's own heartbeat/DSP-round-trip
+                    // watchdogs, since HeartbeatThread/AudioBridgeThread are
+                    // independent threads unaffected by a message-thread
+                    // deadlock) never flushed the flight recorder at all —
+                    // the only kind of "kill" that had NO black box capture.
+                    // SendMessageTimeoutW's own bounded 500ms timeout is
+                    // exactly what lets this line execute even though the
+                    // editor's own message loop may be fully wedged.
+                    FlightRecorder::getInstance().flushToDisk ("CHILD_EDITOR_HEALTHCHECK_STRIKE_LIMIT");
 
                     controlBlock->windowHandleReady.store (false, std::memory_order_release);
+
+                    editorHealthCheckStrikes = 0;
                     activeEditor.reset();
                     return;
                 }
             }
 
-            if (currentWidth > 0 && currentHeight > 0
-                && (currentWidth  != controlBlock->windowWidth.load (std::memory_order_relaxed)
-                    || currentHeight != controlBlock->windowHeight.load (std::memory_order_relaxed)))
-            {
-                controlBlock->windowWidth.store (currentWidth, std::memory_order_relaxed);
-                controlBlock->windowHeight.store (currentHeight, std::memory_order_release);
-            }
+            // Step 68 (Outbound Throttle & Lifecycle Integrity) directive,
+            // Task 1: rapidly, continuously dragging the plugin's own
+            // internal resize handle republishes a new size to shared
+            // memory every single tick this mismatch condition holds —
+            // this timer already runs at CrateIPC::livenessCheckIntervalMs
+            // (20ms/50Hz), comfortably inside a safe band on paper, but a
+            // fixed nominal interval alone isn't a real guarantee: if
+            // Melda's own internal grid recalculation (triggered
+            // synchronously, on THIS SAME message thread, by the plugin's
+            // native handle responding to raw OS mouse-move messages)
+            // ever makes a single tick's own work run long, this Timer
+            // has no idle gap left to wait out and the next tick fires
+            // immediately back-to-back — the exact same wall-clock-drift
+            // hazard proven on the HOST side (CrateSandboxBridge's own
+            // Step 66 follower throttle). Stamping the actual time of the
+            // last real write and checking it explicitly, rather than
+            // trusting the Timer's nominal period, closes that gap here
+            // too. No separate catch-up/idle-flush is needed: the
+            // mismatch condition above re-evaluates true every tick until
+            // the write actually lands, so the very next tick past the
+            // throttle window flushes the latest value on its own.
+            publishEditorSizeIfChanged (currentWidth, currentHeight);
 
             // Step 24 (DPI Awareness & Multi-Monitor Scaling) directive:
             // the PARENT is the only side that can still reliably detect a
@@ -694,83 +1123,36 @@ public:
                 activeEditor->setScaleFactor (requestedScale);
             }
 
-            // Step 35 (Force Child-Side Resize Enforcement & Snap-Back)
-            // directive — the REAL bug in Step 34's own version of this:
-            // plain AudioProcessorEditor::setBounds() bypasses ANY attached
-            // ComponentBoundsConstrainer entirely (confirmed by reading
-            // JUCE's own Component/ComponentBoundsConstrainer source — this
-            // is the SAME "plain setBounds skips the constrainer" fact this
-            // codebase already learned the hard way once before, in Step
-            // 23's own resize-stutter investigation, just biting a
-            // different call site this time). VST3PluginWindow attaches
-            // ITSELF as activeEditor's own constrainer in its constructor
-            // (setConstrainer(this)) — its PRIVATE checkBounds() override
-            // (which calls view->checkSizeConstraint()) ONLY ever runs
-            // through ComponentBoundsConstrainer::setBoundsForComponent(),
-            // never through a plain setBounds() call. That's why the outer
-            // activeEditor Component happily grew to the exact requested
-            // size (nothing stopped it), while the PLUGIN's own embedded
-            // native content — which DOES go through
-            // componentMovedOrResized()'s own canResize()/
-            // checkSizeConstraint() gate — never got a legitimate,
-            // constrainer-validated resize request at all, and stayed at
-            // whatever size it last agreed to, anchored top-left inside a
-            // now-oversized wrapper.
-            //
-            // getConstrainer() (public on AudioProcessorEditor) returns
-            // that same self-attached VST3PluginWindow, treated generically
-            // as a ComponentBoundsConstrainer* — calling
-            // setBoundsForComponent() through it is EXACTLY the same public
-            // API JUCE's own ResizableCornerComponent uses for interactive
-            // mouse-drag resizing, just driven by our own IPC-received
-            // dimensions instead of a mouse position. isStretchingBottom/
-            // Right = true (top/left = false) matches a top-left-anchored
-            // "grow to the right and down" resize, the natural
-            // interpretation of a host-requested absolute size. If the
-            // plugin's own checkSizeConstraint() clamps this to something
-            // smaller/different, activeEditor->getWidth()/getHeight() will
-            // correctly reflect THAT actual, plugin-accepted size
-            // immediately afterward — which the EXISTING windowWidth/
-            // windowHeight republish above (unconditionally re-checked
-            // every tick) already reports back to the PARENT on the very
-            // next tick, satisfying "push back the actual applied
-            // dimensions" with infrastructure that already existed, not a
-            // new IPC field.
-            // Step 36 (The Fixed-Size Lock) directive: a plugin whose
-            // editorCanResize was published false never accepts a
-            // different size anyway (confirmed via direct diagnostic
-            // logging against Opal/DualDelayX — the constrainer clamps
-            // every request straight back to the original size, every
-            // time). The PARENT now hides/disables its own resize grip for
-            // these (see CrateSandboxBridge's own comment), so
-            // hostRequestedWidth/Height should never even change for a
-            // fixed-size plugin post-Step-36 — this guard is the CHILD's
-            // own belt-and-braces backstop in case a stale/pre-Step-36
-            // PARENT still sends one anyway.
-            if (! controlBlock->editorCanResize.load (std::memory_order_relaxed))
-                return;
-
-            const int hostWidth  = controlBlock->hostRequestedWidth.load (std::memory_order_relaxed);
-            const int hostHeight = controlBlock->hostRequestedHeight.load (std::memory_order_relaxed);
-
-            if (hostWidth > 0 && hostHeight > 0
-                && (hostWidth != lastAppliedHostWidth || hostHeight != lastAppliedHostHeight))
-            {
-                lastAppliedHostWidth  = hostWidth;
-                lastAppliedHostHeight = hostHeight;
-
-                if (auto* constrainer = activeEditor->getConstrainer())
-                    constrainer->setBoundsForComponent (activeEditor.get(), { 0, 0, hostWidth, hostHeight },
-                                                        false, false, true, true);
-                else
-                    activeEditor->setBounds (0, 0, hostWidth, hostHeight); // no constrainer attached — nothing to respect, apply directly
-            }
-
+            // Step 65 (Pure Follower Architecture) directive: the Host
+            // never publishes a resize request to the CHILD any more —
+            // the whole hostRequestedWidth/Height apply path (Steps 34/35/
+            // 36/61) that used to live here is gone. The Host is now a
+            // pure follower of whatever size THIS process's own editor
+            // reports (via the windowWidth/windowHeight republish above),
+            // driven exclusively by the plugin's own internal resize
+            // handle (Melda-style) or its own fixed size — there is no
+            // more reverse direction to apply.
             return; // already handled — nothing more to attach
         }
 
         if (! controlBlock->windowHandleRequested.load (std::memory_order_acquire))
             return;
+
+        // Step 79 (Pre-Emptive Native Parenting) directive: the PARENT
+        // guarantees (see CrateSandboxBridge::requestEditorWindow()'s own
+        // doc comment) that windowHandleRequested is never set until
+        // AFTER hostSlotHwndValue has already been published — this is
+        // this side's own belt-and-suspenders check of that same
+        // contract, since creating an editor before a real slot exists
+        // would leave it floating as its own top-level window again, the
+        // exact bug this whole step fixes.
+        const int64_t hostSlotHwndValue = controlBlock->hostSlotHwndValue.load (std::memory_order_acquire);
+
+        if (hostSlotHwndValue == 0)
+        {
+            logToFile ("CrateSandbox: window handle requested, but the Host hasn't published its Airlock slot yet — waiting.");
+            return;
+        }
 
         if (hostedPlugin == nullptr || ! hostedPlugin->hasEditor())
         {
@@ -801,7 +1183,20 @@ public:
         // constructor). Published once here, never re-queried afterward —
         // canResize() is a fixed property of a given editor instance, not
         // something that changes tick-to-tick.
-        const bool editorCanResize = activeEditor->isResizable();
+        // Step 55 (The Liar's Penalty) directive: the plugin's own claim
+        // is overridden by EITHER conviction source — this process's own
+        // in-session latch (editorProvedFixedSizeLiar, set by the
+        // Recovery Guard the moment a snap-back proves the claim false)
+        // or the PARENT's pre-launch verdict from PluginHealthRegistry
+        // (ControlBlock::forceFixedSizeEditor, written before this
+        // process even spawned, for a plugin convicted in a PAST
+        // session). Folding the override into editorCanResize itself
+        // means every downstream consumer — the probe-vs-fixed branch,
+        // the editorCanResize publish, the host-resize ignore guard —
+        // sees ONE consistent verdict with no extra plumbing.
+        const bool editorCanResize = ! editorProvedFixedSizeLiar
+                                        && ! controlBlock->forceFixedSizeEditor.load (std::memory_order_relaxed)
+                                        && activeEditor->isResizable();
 
         // The One-Way Zoom Trap directive (Step 10.1 patch 2) — SUPERSEDED
         // by Step 23: this used to be setResizable(false, false), disabling
@@ -821,15 +1216,135 @@ public:
         // user at all (see Step 36's own comment on editorCanResize).
         activeEditor->setResizable (true, true);
 
-        // addToDesktop(0): a REAL top-level native window (a genuine
-        // ComponentPeer/HWND), never actually SHOWN to a user directly on
-        // this side — it exists only to be reparented into the PARENT's
-        // own window a moment later. 0 = no special OS window decorations,
-        // irrelevant anyway once WS_POPUP becomes WS_CHILD during
-        // reparenting (see CrateSandboxBridge's own comment on
-        // juce::HWNDComponent's Pimpl).
-        activeEditor->addToDesktop (0);
+        // Step 88 (Probe Before Attach) directive — QA finding, confirmed
+        // via direct instrumentation of JUCE's own vendored
+        // juce_VST3PluginFormat.cpp (Step 86): this probe used to run
+        // AFTER addToDesktop()/setVisible(), on the assumption (Step 52
+        // Task 2's own original comment) that "nothing on this side of
+        // the sandbox boundary is ever shown directly," which was TRUE
+        // under the OLD architecture (the editor was its own separate,
+        // never-shown floating window, reparented into the Host
+        // afterward) but became FALSE the moment Step 79 (Pre-Emptive
+        // Native Parenting) started calling addToDesktop() with the
+        // Host's OWN already-visible Airlock slot as the native parent —
+        // from that point on, this editor IS the user's actual on-screen
+        // content the instant it's shown. The ground-truth diagnostic log
+        // (CrateVST3WindowDiag.log) proved this probe was firing two real,
+        // live, on-screen componentMovedOrResized() calls — one growing
+        // the ALREADY-VISIBLE, ALREADY-ATTACHED Melda view to a violent
+        // 10000x10000, one shrinking it back — on top of the natural,
+        // correct onSize() JUCE already fires by itself the instant
+        // addToDesktop() creates a peer for an already-visible Component
+        // (via componentVisibilityChanged()). Melda's own Direct2D
+        // rendering evidently doesn't recover cleanly from that violent,
+        // synchronous, fully-visible resize round-trip, leaving the
+        // white-box artifact — a genuine VST3PluginWindow-level fact this
+        // codebase's own Airlock architecture could never have shown up
+        // in Win32-level measurement (every native rect measured 100%
+        // correct at every step; the damage is inside Melda's own
+        // rendering, not in any HWND geometry this process owns).
+        //
+        // Fix: run the ENTIRE probe (or the fixed-size min/max fallback)
+        // BEFORE addToDesktop() — at this point the editor genuinely has
+        // no peer and isn't shown to the user at all (matching Step 52's
+        // own ORIGINAL, now-restored assumption), so the same 1/1 and
+        // 10000/10000 constrainer probes measure the exact same
+        // plugin-reported limits (VST3PluginWindow::checkBounds() calls
+        // view->checkSizeConstraint(), which needs no peer at all) with
+        // zero visible side effect. The editor is left sized back at its
+        // own authored creationWidth/Height by the time addToDesktop()
+        // finally runs, exactly once, on the final correct size.
+        if (editorCanResize)
+        {
+            if (auto* probeConstrainer = activeEditor->getConstrainer())
+            {
+                const int creationWidth  = activeEditor->getWidth();
+                const int creationHeight = activeEditor->getHeight();
+
+                // Minimum probe: an absurdly small candidate — whatever the
+                // plugin clamps this down to IS its real minimum. If it
+                // refuses to shrink at all, the clamp lands back on
+                // creationWidth/Height, which correctly means "this plugin
+                // has no smaller size than the one it opened at."
+                probeConstrainer->setBoundsForComponent (activeEditor.get(), { 0, 0, 1, 1 }, false, false, true, true);
+                const int probedMinWidth  = activeEditor->getWidth();
+                const int probedMinHeight = activeEditor->getHeight();
+
+                // Maximum probe: an absurdly large candidate, same idea in
+                // reverse.
+                probeConstrainer->setBoundsForComponent (activeEditor.get(), { 0, 0, 10000, 10000 }, false, false, true, true);
+                const int probedMaxWidth  = activeEditor->getWidth();
+                const int probedMaxHeight = activeEditor->getHeight();
+
+                // Restore the plugin's own authored creation size — the
+                // two probes above are throwaway measurements, not a real
+                // resize the plugin should be left sitting at.
+                probeConstrainer->setBoundsForComponent (activeEditor.get(), { 0, 0, creationWidth, creationHeight }, false, false, true, true);
+
+                controlBlock->pluginMinWidth.store  (probedMinWidth,  std::memory_order_relaxed);
+                controlBlock->pluginMinHeight.store (probedMinHeight, std::memory_order_relaxed);
+                controlBlock->pluginMaxWidth.store  (probedMaxWidth,  std::memory_order_relaxed);
+                controlBlock->pluginMaxHeight.store (probedMaxHeight, std::memory_order_relaxed);
+
+                logToFile ("CrateSandbox: probed plugin resize limits — min=" + juce::String (probedMinWidth) + "x" + juce::String (probedMinHeight)
+                               + ", max=" + juce::String (probedMaxWidth) + "x" + juce::String (probedMaxHeight) + ".");
+            }
+        }
+        else
+        {
+            // Fixed-size plugin (Step 36) — min==max==creation size,
+            // matching editorCanResize's own "this plugin never accepts a
+            // different size" contract used elsewhere.
+            controlBlock->pluginMinWidth.store  (activeEditor->getWidth(),  std::memory_order_relaxed);
+            controlBlock->pluginMinHeight.store (activeEditor->getHeight(), std::memory_order_relaxed);
+            controlBlock->pluginMaxWidth.store  (activeEditor->getWidth(),  std::memory_order_relaxed);
+            controlBlock->pluginMaxHeight.store (activeEditor->getHeight(), std::memory_order_relaxed);
+        }
+
+        // Step 79 (Pre-Emptive Native Parenting) directive — QA finding:
+        // the OLD addToDesktop(0) (no parent) created this editor as its
+        // own genuine TOP-LEVEL native window, then relied on the PARENT
+        // reparenting it via SetParent() afterward. A heavy VST3's own
+        // Direct2D/OpenGL swap chain is set up against whatever window it
+        // was ORIGINALLY created for — a later SetParent() doesn't
+        // retroactively fix that, which is exactly why Melda kept popping
+        // out as its own top-level window regardless of any style
+        // stripping performed after the fact.
+        //
+        // Passing the Airlock slot's own HWND (published by the PARENT
+        // via hostSlotHwndValue BEFORE windowHandleRequested was ever set
+        // — see requestEditorWindow()'s own doc comment for that ordering
+        // guarantee) as addToDesktop()'s nativeWindowToAttachTo parameter
+        // makes JUCE's own HWNDComponentPeer call CreateWindowEx with the
+        // slot as hWndParent from the very FIRST frame. Confirmed by
+        // reading juce_Windowing_windows.cpp directly:
+        // computeNativeStyleFlags() sets WS_CHILD (and ONLY WS_CHILD —
+        // never WS_POPUP/WS_CAPTION/WS_THICKFRAME/WS_SYSMENU) the instant
+        // a native parent is supplied. Nothing is ever created wrong in
+        // the first place, so there's nothing left to strip or
+        // force-recalculate afterward, and no SetParent() call anywhere
+        // in this whole path any more.
+        auto* hostSlotHwnd = (void*) (intptr_t) hostSlotHwndValue;
+        activeEditor->addToDesktop (0, hostSlotHwnd);
+
+        // Step 80 (Geometry Snap) directive — REMOVED: the getWidth()/
+        // getHeight() -> setSize() re-assertion this step originally added
+        // here was, on inspection, provably inert — JUCE's own
+        // Component::setSize() early-returns when the new size already
+        // equals the current one, and reading a value straight back into
+        // itself can never be anything else. It could not have been the
+        // cause of a later clipping symptom; see componentMovedOrResized()'s
+        // own doc comment for the actual event-driven fix (Step 81).
         activeEditor->setVisible (true);
+
+        // Step 81 (Event-Driven Geometry Publish) directive: registered
+        // once, right after the editor exists — see
+        // componentMovedOrResized()'s own doc comment. juce::Component's
+        // own destructor removes this listener automatically whenever
+        // activeEditor is reset/recreated, so there's nothing to
+        // explicitly unregister at any of this class's own teardown
+        // points.
+        activeEditor->addComponentListener (this);
 
         if (auto* peer = activeEditor->getPeer())
         {
@@ -847,6 +1362,10 @@ public:
             logToFile ("CrateSandbox: editor window created and handle published ("
                            + juce::String (activeEditor->getWidth()) + "x" + juce::String (activeEditor->getHeight())
                            + ", canResize=" + (editorCanResize ? juce::String ("true") : juce::String ("false")) + ").");
+
+           #if JUCE_WINDOWS
+            crateLogPeerNativeTree ((HWND) peer->getNativeHandle(), &logToFile);
+           #endif
 
             // Step 24 (Editor View Recovery Guard) directive: baseline for
             // detecting the Melda-style "resize burst leaves the plugin's
@@ -963,8 +1482,15 @@ public:
         if (controlBlock != nullptr && controlBlock->initialStateSize > 0
             && controlBlock->initialStateSize <= CrateIPC::ControlBlock::maxStateChunkBytes)
         {
-            hostedPlugin->setStateInformation (controlBlock->initialStateData, (int) controlBlock->initialStateSize);
-            logToFile ("CrateSandbox: restored plugin state from PARENT (" + juce::String (controlBlock->initialStateSize) + " bytes).");
+            // Step 51 (Silent Crash Hardening) directive: same SEH
+            // protection as the live-restore path — a crash-resurrection
+            // restore is, if anything, MORE likely to hand a plugin state
+            // bytes it doesn't like (this runs after every restart,
+            // including one caused by the plugin itself misbehaving).
+            if (sehSetStateInformation (hostedPlugin.get(), controlBlock->initialStateData, (int) controlBlock->initialStateSize))
+                logToFile ("CrateSandbox: restored plugin state from PARENT (" + juce::String (controlBlock->initialStateSize) + " bytes).");
+            else
+                logToFile ("CrateSandbox: setStateInformation() faulted (caught via SEH) during crash-resurrection restore — continuing with default state.");
         }
 
         // RESTART LIVELOCK directive: AudioBridgeThread is already running
@@ -1150,12 +1676,14 @@ private:
         // internal NamedEvent, built from instanceId, rather than
         // requiring the caller to separately construct and pass one.
         LookaheadWorkerThread (CrateIPC::ControlBlock& blockToUse, std::atomic<juce::AudioPluginInstance*>& pluginPtrToUse,
-                               const juce::String& instanceId, std::atomic_flag& pluginAccessLockToUse)
+                               const juce::String& instanceId, std::atomic_flag& pluginAccessLockToUse,
+                               std::atomic<bool>& isCorruptedToUse)
             : juce::Thread ("Crate Lookahead Worker"),
               block (blockToUse),
               hostedPluginPtr (pluginPtrToUse),
               readyEvent (CrateIPC::getLookaheadRequestReadyEventName (instanceId)),
-              pluginAccessLock (pluginAccessLockToUse)
+              pluginAccessLock (pluginAccessLockToUse),
+              isCorrupted (isCorruptedToUse)
         {
             // Zero Allocation directive, same as AudioBridgeThread's own
             // workBuffer — pre-allocated ONCE, sized down (never up) per
@@ -1213,6 +1741,27 @@ private:
 
                     auto* plugin = hostedPluginPtr.load (std::memory_order_acquire);
 
+                    // Step 52 (The Anti-Zombie Auto-Respawn Protocol)
+                    // directive: same corruption gate as AudioBridgeThread's
+                    // own — both threads call into the identical
+                    // hostedPlugin instance, so a fault caught by EITHER
+                    // must stop BOTH from calling processBlock() on it
+                    // again. Silence into the lookahead result too, not
+                    // passthrough — a pre-rendered "future" block sitting
+                    // in the Time-Slip buffer is exactly as unsafe to hand
+                    // to the audio thread later as a live corrupted block
+                    // would be right now.
+                    if (isCorrupted.load (std::memory_order_acquire))
+                    {
+                        for (int ch = 0; ch < numChannels; ++ch)
+                            std::memset (result.audioOutput + (size_t) ch * CB::maxSamplesPerBlock, 0, (size_t) numSamples * sizeof (float));
+
+                        tail = (tail + 1) % (uint32_t) CB::lookaheadRingCapacity;
+                        block.lookaheadRequestTail.store (tail, std::memory_order_release);
+                        block.lookaheadResultHead.store (tail, std::memory_order_release);
+                        continue;
+                    }
+
                     // Try-lock-or-back-off, same idiom StateExtractionThread
                     // already uses for this SAME lock — this thread is never
                     // time-critical (unlike the audio thread, it CAN afford
@@ -1238,6 +1787,28 @@ private:
                             for (int ch = 0; ch < numChannels; ++ch)
                                 workBuffer.copyFrom (ch, 0, request.audioInput + (size_t) ch * CB::maxSamplesPerBlock, numSamples);
 
+                            // Zero-Dropout Bridge directive (Step 52): the
+                            // DETERMINISTIC automation value the PARENT's
+                            // message thread already sampled for THIS exact
+                            // future timeline position (see
+                            // LookaheadRequestSlot::paramValues's own doc
+                            // comment in CrateIPCConstants.h for why that
+                            // sampling can only happen on the message
+                            // thread, never here). Applied every request,
+                            // regardless of whether request.numParamValues
+                            // changed since the last one — a stateful
+                            // plugin's own parameter, once set, holds until
+                            // told otherwise, so re-asserting the same value
+                            // is harmless and simpler than diffing.
+                            if (request.numParamValues > 0)
+                            {
+                                const auto& params = plugin->getParameters();
+                                const int count = juce::jmin (request.numParamValues, params.size());
+
+                                for (int i = 0; i < count; ++i)
+                                    params[i]->setValue (juce::jlimit (0.0f, 1.0f, request.paramValues[i]));
+                            }
+
                             midiBuffer.clear();
 
                             // Step 20 (The Denormal Shield) directive: real
@@ -1256,17 +1827,35 @@ private:
                             // juce::ScopedNoDenormals' own "hold the FTZ/DAZ
                             // flags for exactly as long as you need them"
                             // contract.
+                            bool processedOk;
                             {
                                 juce::ScopedNoDenormals noDenormals;
-                                plugin->processBlock (workBuffer, midiBuffer);
+                                processedOk = sehProcessBlock (plugin, workBuffer, midiBuffer);
                             }
 
                             pluginAccessLock.clear (std::memory_order_release);
 
-                            for (int ch = 0; ch < numChannels; ++ch)
+                            if (! processedOk)
                             {
-                                auto* out = result.audioOutput + (size_t) ch * CB::maxSamplesPerBlock;
-                                std::memcpy (out, workBuffer.getReadPointer (ch), (size_t) numSamples * sizeof (float));
+                                // Same one-shot latch AudioBridgeThread sets —
+                                // whichever thread's processBlock() faults
+                                // first wins the race to flip it, the other
+                                // just observes it true on its next check.
+                                isCorrupted.store (true, std::memory_order_release);
+                                block.corruptionDetected.store (true, std::memory_order_release);
+                                logToFile ("CrateSandbox: LookaheadWorkerThread's processBlock() faulted (caught via SEH) — "
+                                               "plugin instance marked CORRUPTED, outputting silence and awaiting respawn.");
+
+                                for (int ch = 0; ch < numChannels; ++ch)
+                                    std::memset (result.audioOutput + (size_t) ch * CB::maxSamplesPerBlock, 0, (size_t) numSamples * sizeof (float));
+                            }
+                            else
+                            {
+                                for (int ch = 0; ch < numChannels; ++ch)
+                                {
+                                    auto* out = result.audioOutput + (size_t) ch * CB::maxSamplesPerBlock;
+                                    std::memcpy (out, workBuffer.getReadPointer (ch), (size_t) numSamples * sizeof (float));
+                                }
                             }
 
                             processed = true;
@@ -1299,6 +1888,14 @@ private:
         juce::MidiBuffer midiBuffer;
         CrateIPC::NamedEvent readyEvent;
         std::atomic_flag& pluginAccessLock;
+
+        // Same flag AudioBridgeThread checks — shared, not a private copy,
+        // since both threads call processBlock() on the identical
+        // hostedPlugin instance and either one can be the first to hit a
+        // fault. Reference member, owned by the enclosing
+        // CrateSandboxApplication/TenantContext, matching pluginAccessLock's
+        // own pattern immediately above.
+        std::atomic<bool>& isCorrupted;
     };
 
     // Asynchronous State Extraction directive (Step 11): a thin driver that
@@ -1323,8 +1920,19 @@ private:
         // potentially the plugin's own audio-processing thread (see class
         // doc comment on why) — sets one atomic and calls notify(), both
         // fast, non-blocking, allocation-free operations.
+        //
+        // Step 71 (State Extraction Debounce) directive — QA finding: some
+        // plugins call updateHostDisplay()/sendChangeMessage() (which maps
+        // to audioProcessorChanged(), see StateChangeListener above) on
+        // EVERY parameter tweak during a drag, not just at gesture end —
+        // vendor behavior outside this codebase's control, unlike the
+        // deliberate no-op on audioProcessorParameterChanged() itself.
+        // lastRequestMs records the WALL-CLOCK time of the latest request;
+        // run()'s own debounce loop (below) is what actually decides when
+        // to act on it.
         void triggerExtraction()
         {
+            lastRequestMs.store (juce::Time::getMillisecondCounter(), std::memory_order_release);
             extractionRequested.store (true, std::memory_order_release);
             notify();
         }
@@ -1341,12 +1949,33 @@ private:
                 if (! extractionRequested.exchange (false, std::memory_order_acq_rel))
                     continue; // spurious wake guard
 
+                // Step 71 (State Extraction Debounce) directive: collapse
+                // an entire burst of rapid-fire requests into ONE
+                // extraction, performed only once the request stream has
+                // genuinely gone quiet for debounceMs. wait(timeoutMs)
+                // returns EARLY the instant another triggerExtraction()
+                // fires its own notify() during this wait — that's exactly
+                // what re-loops this and re-measures against the freshly
+                // updated lastRequestMs, so a continuous drag never lets
+                // this fall through until it actually stops.
+                for (;;)
+                {
+                    const auto elapsedMs = juce::Time::getMillisecondCounter()
+                                                - lastRequestMs.load (std::memory_order_acquire);
+
+                    if (elapsedMs >= (juce::uint32) debounceMs)
+                        break;
+
+                    wait ((int) (debounceMs - elapsedMs));
+
+                    if (threadShouldExit())
+                        return;
+                }
+
                 auto* plugin = hostedPluginPtr.load (std::memory_order_acquire);
 
                 if (plugin == nullptr)
                     continue;
-
-                juce::MemoryBlock chunk;
 
                 // Step 37 (The Debt Sweep) fix — a real lock-safety bug: the
                 // old version of this loop called getStateInformation() and
@@ -1381,31 +2010,107 @@ private:
                 if (! acquired)
                     continue; // never got the lock — must not touch the plugin or clear a lock we don't hold; the next genuine edit re-triggers this anyway
 
-                plugin->getStateInformation (chunk);
-                pluginAccessLock.clear (std::memory_order_release);
-
-                using CB = CrateIPC::ControlBlock;
-
-                if (chunk.getSize() == 0)
-                    continue; // nothing to push — some plugins return an empty chunk under some conditions
-
-                if ((int64_t) chunk.getSize() > CB::maxStateChunkBytes)
+                // Step 83 (Same-Thread State Extraction) directive — QA
+                // finding, confirmed via a live, non-invasive WinDbg attach
+                // on an actual reproduced freeze (not a guess): JUCE's own
+                // VST3PluginInstanceHeadless::getStateInformation()
+                // (juce_VST3PluginFormatImpl.h) unconditionally takes a
+                // juce::MessageManagerLock before calling into the plugin's
+                // own getState(). Calling it from THIS background thread
+                // parks the Child's message thread inside
+                // MessageManager::Lock::BlockingMessage::messageCallback()
+                // — a raw condition_variable wait, not a message-pumping
+                // wait — for however long the plugin's own getState() call
+                // takes. The captured Child stack showed Melda's own
+                // getState() implementation calling SetWindowPos on its own
+                // editor HWND as a side effect (MeldaProductionAudioPlugin-
+                // KernelV1164!... -> win32u!NtUserSetWindowPos) — a HWND
+                // owned by the Child's OWN message thread. A cross-thread
+                // SetWindowPos requires the target window's owning thread
+                // to service synchronous WM_WINDOWPOSCHANGING/CHANGED
+                // messages, which the parked message thread cannot do
+                // while stuck in the wait above: the message thread waits
+                // for this thread to release the MessageManagerLock, and
+                // this thread (inside Melda's own code) waits for the
+                // message thread to pump a window message. Circular,
+                // deterministic, confirmed live on both sides at once —
+                // not the cross-process Host-side mechanism first guessed;
+                // the Host's own 98 threads were independently confirmed
+                // all idle at the same moment.
+                //
+                // Fix: perform the actual plugin call ON the message
+                // thread via callAsync(). juce::MessageManagerLock
+                // recognises re-entrancy from the thread that already owns
+                // the MessageManager and becomes a same-thread no-op
+                // instead of posting a BlockingMessage — and any
+                // SetWindowPos the plugin issues against its own HWND from
+                // ITS OWN owning thread is a direct, same-thread Win32
+                // call (never queued, never blocks). All the debounce/
+                // backoff timing above stays on this background thread,
+                // unchanged from Step 71 — only the single call that can
+                // touch the plugin's own HWND moves to where that HWND
+                // actually lives. sehGetStateInformation()'s own SEH
+                // wrapper (Step 51) still protects this, now on the
+                // message thread instead of here.
+                juce::MessageManager::callAsync ([this, plugin]
                 {
-                    // Real, disclosed limit — not a silent corruption risk.
-                    // See ControlBlock's own doc comment on why this is a
-                    // fixed-size buffer, matching this codebase's
-                    // established "no dynamic growth" IPC contract.
-                    continue;
-                }
+                    juce::MemoryBlock chunk;
+                    const bool extractionOk = sehGetStateInformation (plugin, chunk);
+                    pluginAccessLock.clear (std::memory_order_release);
 
-                while (block.stateChunkLock.test_and_set (std::memory_order_acquire))
-                    juce::Thread::sleep (1);
+                    if (! extractionOk)
+                    {
+                        logToFile ("CrateSandbox: getStateInformation() faulted (caught via SEH) — skipping this state push.");
+                        return;
+                    }
 
-                std::memcpy (block.stateChunkData, chunk.getData(), chunk.getSize());
-                block.stateChunkSize.store ((int64_t) chunk.getSize(), std::memory_order_relaxed);
-                block.stateChunkAvailable.store (true, std::memory_order_release);
+                    using CB = CrateIPC::ControlBlock;
 
-                block.stateChunkLock.clear (std::memory_order_release);
+                    if (chunk.getSize() == 0)
+                        return; // nothing to push — some plugins return an empty chunk under some conditions
+
+                    if ((int64_t) chunk.getSize() > CB::maxStateChunkBytes)
+                        return; // real, disclosed limit — see ControlBlock's own doc comment on the fixed-size buffer contract
+
+                    // Step 72 (Poison Pill / Hard Teardown) directive: this
+                    // was the LAST unbounded spin against a shared-memory
+                    // lock in this whole process (every sibling backoff was
+                    // already capped at 100 attempts). Against a lock only
+                    // ever held for a memcpy it looked safe — but a lock
+                    // flag inherited from a KILLED previous generation
+                    // (Guillotine, Watchdog) has no holder left to ever
+                    // clear it, and an unbounded spin here permanently hung
+                    // this thread, silently killing all state sync for the
+                    // rest of the process's life. Now bounded exactly like
+                    // every other backoff: abandon this one push and move
+                    // on — the next genuine edit re-triggers extraction
+                    // anyway. Running on the message thread now (Step 83)
+                    // — contention here is only ever the Host's own brief
+                    // read-side memcpy, so this bound is a formality, not
+                    // an expected real wait.
+                    int lockAttempts = 0;
+                    bool chunkLockAcquired = false;
+
+                    while (! (chunkLockAcquired = ! block.stateChunkLock.test_and_set (std::memory_order_acquire)))
+                    {
+                        if (++lockAttempts > 100)
+                            break;
+                        juce::Thread::sleep (1);
+                    }
+
+                    if (! chunkLockAcquired)
+                    {
+                        logToFile ("CrateSandbox: stateChunkLock still held after 100 attempts — abandoning this "
+                                       "state push (the next edit re-triggers extraction).");
+                        return;
+                    }
+
+                    std::memcpy (block.stateChunkData, chunk.getData(), chunk.getSize());
+                    block.stateChunkSize.store ((int64_t) chunk.getSize(), std::memory_order_relaxed);
+                    block.stateChunkAvailable.store (true, std::memory_order_release);
+
+                    block.stateChunkLock.clear (std::memory_order_release);
+                });
             }
         }
 
@@ -1414,6 +2119,12 @@ private:
         std::atomic<juce::AudioPluginInstance*>& hostedPluginPtr;
         std::atomic_flag& pluginAccessLock;
         std::atomic<bool> extractionRequested { false };
+
+        // Step 71 (State Extraction Debounce) directive: matches the
+        // user's own explicit directive (500ms of quiet after the last
+        // change before pushing a state chunk).
+        static constexpr int debounceMs = 500;
+        std::atomic<juce::uint32> lastRequestMs { 0 };
     };
 
     // The VST3 Edit Hook directive (Step 11): JUCE's own
@@ -1469,12 +2180,14 @@ private:
     {
     public:
         AudioBridgeThread (CrateIPC::ControlBlock& blockToUse, std::atomic<juce::AudioPluginInstance*>& pluginPtrToUse,
-                           const juce::String& instanceId, std::atomic_flag& pluginAccessLockToUse)
+                           const juce::String& instanceId, std::atomic_flag& pluginAccessLockToUse,
+                           std::atomic<bool>& isCorruptedToUse)
             : juce::Thread ("Crate Sandbox Audio Bridge"),
               block (blockToUse),
               hostedPluginPtr (pluginPtrToUse),
               readyEvent (CrateIPC::getBufferReadyEventName (instanceId)),
-              pluginAccessLock (pluginAccessLockToUse)
+              pluginAccessLock (pluginAccessLockToUse),
+              isCorrupted (isCorruptedToUse)
         {
             // Zero Allocation directive (Step 7): pre-allocated ONCE, to the
             // worst-case size this bridge supports — sized down (never up)
@@ -1527,6 +2240,29 @@ private:
                 // the very next block that should audibly reflect it.
                 drainParameterQueue (currentPlugin);
 
+                // Step 52 (The Anti-Zombie Auto-Respawn Protocol) directive,
+                // Task 1: checked FIRST, unconditionally — once a plugin
+                // instance has faulted (any thread's SEH catch, this one or
+                // StateExtractionThread's), its internal DSP state is
+                // UNTRUSTED. Continuing to call processBlock() on it risks
+                // exactly what this protocol exists to prevent: a corrupted
+                // plugin outputting maximum-level noise into a live PA. A
+                // corrupted plugin gets SILENCE, not passthrough — the user's
+                // own explicit directive — for as long as this instance
+                // lives, which should be briefly: the PARENT's own
+                // corruptionDetected poll (see ControlBlock's own doc
+                // comment) kills and respawns this whole process shortly
+                // after this flag is first observed set.
+                if (isCorrupted.load (std::memory_order_acquire))
+                {
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        std::memset (block.audioOutput + (size_t) ch * CrateIPC::ControlBlock::maxSamplesPerBlock, 0, (size_t) numSamples * sizeof (float));
+
+                    block.childProcessed.store (true, std::memory_order_release);
+                    block.parentReady.store (false, std::memory_order_relaxed);
+                    continue;
+                }
+
                 // Step 11 directive: StateExtractionThread can now call
                 // getStateInformation()/setStateInformation() on this SAME
                 // plugin instance from a different thread — try-lock rather
@@ -1549,13 +2285,45 @@ private:
                     // BEFORE this call — no MIDI sync yet, per Step 8's own
                     // scope, so an empty MIDI buffer is still correct here.
                     midiBuffer.clear();
-                    currentPlugin->processBlock (workBuffer, midiBuffer);
+
+                    // Step 39 (Live Telemetry) directive, Task 3: wraps
+                    // ONLY this one call — the plugin's own real CPU cost,
+                    // not IPC dispatch/spin-wait overhead (which is measured
+                    // separately, on the PARENT side, as
+                    // CrateSandboxBridge::maxRoundTripMsObserved).
+                    //
+                    // Step 52 directive, Task 1: sehProcessBlock() replaces
+                    // a bare call — see its own doc comment. A caught fault
+                    // here is THE core scenario this whole protocol exists
+                    // for: mark this instance corrupted (both locally and
+                    // over IPC) and overwrite whatever workBuffer may hold
+                    // (a partially-written, possibly garbage block from the
+                    // instant of the fault) with silence before it ever
+                    // reaches audioOutput.
+                    const auto processBlockStartMs = juce::Time::getMillisecondCounterHiRes();
+                    const bool processedOk = sehProcessBlock (currentPlugin, workBuffer, midiBuffer);
+                    const auto processBlockMicros = (uint32_t) juce::jmax (0.0, (juce::Time::getMillisecondCounterHiRes() - processBlockStartMs) * 1000.0);
+                    block.lastProcessBlockMicros.store (processBlockMicros, std::memory_order_relaxed);
+
                     pluginAccessLock.clear (std::memory_order_release);
 
-                    for (int ch = 0; ch < numChannels; ++ch)
+                    if (! processedOk)
                     {
-                        auto* out = block.audioOutput + (size_t) ch * CrateIPC::ControlBlock::maxSamplesPerBlock;
-                        std::memcpy (out, workBuffer.getReadPointer (ch), (size_t) numSamples * sizeof (float));
+                        isCorrupted.store (true, std::memory_order_release);
+                        block.corruptionDetected.store (true, std::memory_order_release);
+                        logToFile ("CrateSandbox: processBlock() faulted (caught via SEH) — plugin instance marked CORRUPTED, "
+                                       "outputting silence and awaiting respawn.");
+
+                        for (int ch = 0; ch < numChannels; ++ch)
+                            std::memset (block.audioOutput + (size_t) ch * CrateIPC::ControlBlock::maxSamplesPerBlock, 0, (size_t) numSamples * sizeof (float));
+                    }
+                    else
+                    {
+                        for (int ch = 0; ch < numChannels; ++ch)
+                        {
+                            auto* out = block.audioOutput + (size_t) ch * CrateIPC::ControlBlock::maxSamplesPerBlock;
+                            std::memcpy (out, workBuffer.getReadPointer (ch), (size_t) numSamples * sizeof (float));
+                        }
                     }
                 }
                 else
@@ -1615,6 +2383,14 @@ private:
         juce::MidiBuffer midiBuffer;
         CrateIPC::NamedEvent readyEvent;
         std::atomic_flag& pluginAccessLock;
+
+        // Step 52 (The Anti-Zombie Auto-Respawn Protocol) directive: shared
+        // with the OWNING scope (CrateSandboxApplication for isolated,
+        // TenantContext for a tenant) and, in the tenant case, also with
+        // that SAME tenant's own LookaheadWorkerThread — both threads call
+        // into the identical hostedPlugin instance, so both must respect
+        // the SAME corruption flag the instant either one sets it.
+        std::atomic<bool>& isCorrupted;
     };
 
     //==============================================================================
@@ -1636,7 +2412,7 @@ private:
     // thread, one editor. Not movable/copyable (std::atomic_flag and
     // std::atomic<> members forbid it), so always owned via
     // std::unique_ptr<TenantContext>, never by value.
-    struct TenantContext
+    struct TenantContext : public juce::ComponentListener
     {
         juce::String instanceId;
 
@@ -1652,6 +2428,15 @@ private:
         // tenant's AudioBridgeThread/StateExtractionThread pair only ever
         // contends with ITS OWN tenant's threads, never another tenant's.
         std::atomic_flag pluginAccessLock = ATOMIC_FLAG_INIT;
+
+        // Step 52 (The Anti-Zombie Auto-Respawn Protocol) directive: owned
+        // here (per-tenant), shared by reference into this tenant's own
+        // AudioBridgeThread AND LookaheadWorkerThread — set true the instant
+        // EITHER thread's processBlock() faults, checked by BOTH before
+        // their next call. Starts false; a respawned tenant gets a brand
+        // new TenantContext (and thus a fresh, false flag) rather than this
+        // one being reset in place.
+        std::atomic<bool> isCorrupted { false };
 
         std::unique_ptr<HeartbeatThread> heartbeatThread;
         std::unique_ptr<AudioBridgeThread> audioBridgeThread;
@@ -1670,12 +2455,6 @@ private:
         // path's matching member for the full reasoning.
         float lastAppliedDisplayScale = 1.0f;
 
-        // Step 34 (Bidirectional Resize) directive: per-tenant treatment —
-        // see the isolated path's own matching members for the full
-        // reasoning.
-        int lastAppliedHostWidth  = 0;
-        int lastAppliedHostHeight = 0;
-
         // Step 24 (Editor View Recovery Guard) directive: per-tenant
         // treatment of the same Melda-view-corruption fingerprint — see
         // the isolated path's own matching members for the full evidence
@@ -1684,10 +2463,70 @@ private:
         int initialEditorHeight = 0;
         bool editorHasEverResized = false;
 
+        // Step 55 (The Liar's Penalty) directive: per-tenant treatment —
+        // see the isolated path's own matching member for the full
+        // reasoning. Never resets for this tenant's lifetime.
+        bool editorProvedFixedSizeLiar = false;
+
         // Step 35 (Editor View Recovery Guard v2) directive, Task 3:
         // per-tenant treatment — see the isolated path's own matching
         // member for the full reasoning.
         juce::uint32 lastEditorHealthCheckMs = 0;
+
+        // Step 69 (Watchdog Strike System) directive: per-tenant
+        // treatment — see the isolated path's own matching member for the
+        // full reasoning. editorHealthCheckStrikeThreshold itself is a
+        // single shared constant (declared once, at the outer class's own
+        // scope) — the same "how many strikes is enough" answer applies
+        // to every tenant equally, only the running count is per-tenant.
+        int editorHealthCheckStrikes = 0;
+
+        // Step 68 (Outbound Throttle & Lifecycle Integrity) directive,
+        // Task 1: per-tenant treatment — see the isolated path's own
+        // matching member for the full reasoning. outboundReportThrottleMs
+        // itself is a single shared constant (declared once, at the outer
+        // class's own scope), but the timestamp it's checked against must
+        // be tracked per-tenant — one tenant's own drag shouldn't throttle
+        // a completely unrelated tenant's own outbound reports.
+        juce::uint32 lastOutboundReportMs = 0;
+
+        // Step 81 (Event-Driven Geometry Publish) directive: per-tenant
+        // treatment — see the isolated path's own matching methods for the
+        // full reasoning. Each tenant IS its own juce::ComponentListener
+        // (rather than sharing the outer CrateSandboxApplication's single
+        // one) since multiple tenants' own editors can exist at once, each
+        // needing to be told apart at dispatch time.
+        void publishEditorSizeIfChanged (int currentWidth, int currentHeight)
+        {
+            if (controlBlock == nullptr || currentWidth <= 0 || currentHeight <= 0)
+                return;
+
+            if (currentWidth  == controlBlock->windowWidth.load (std::memory_order_relaxed)
+                && currentHeight == controlBlock->windowHeight.load (std::memory_order_relaxed))
+                return;
+
+            const auto nowOutboundMs = juce::Time::getMillisecondCounter();
+
+            // Qualified explicitly — CrateSandboxApplication::
+            // outboundReportThrottleMs is a private static constexpr on the
+            // OUTER class; a nested struct's own member function does NOT
+            // get automatic unqualified lookup into the enclosing class's
+            // scope (only matching ACCESS rights, which C++11 does grant
+            // nested classes to their enclosing class's private members —
+            // but lookup and access are two different things).
+            if (nowOutboundMs - lastOutboundReportMs < (juce::uint32) CrateSandboxApplication::outboundReportThrottleMs)
+                return;
+
+            lastOutboundReportMs = nowOutboundMs;
+            controlBlock->windowWidth.store (currentWidth, std::memory_order_relaxed);
+            controlBlock->windowHeight.store (currentHeight, std::memory_order_release);
+        }
+
+        void componentMovedOrResized (juce::Component& component, bool /*wasMoved*/, bool wasResized) override
+        {
+            if (wasResized && activeEditor != nullptr && &component == activeEditor.get())
+                publishEditorSizeIfChanged (activeEditor->getWidth(), activeEditor->getHeight());
+        }
 
         TenantContext() = default;
 
@@ -1880,14 +2719,14 @@ private:
         tenant->heartbeatThread->startThread (juce::Thread::Priority::normal);
 
         tenant->audioBridgeThread = std::make_unique<AudioBridgeThread> (*tenant->controlBlock, tenant->hostedPluginPtr,
-                                                                          instanceIdToSpawn, tenant->pluginAccessLock);
+                                                                          instanceIdToSpawn, tenant->pluginAccessLock, tenant->isCorrupted);
         tenant->audioBridgeThread->startThread (juce::Thread::Priority::high);
 
         // Step 17 directive: same rationale as the isolated path's own
         // construction site — started alongside AudioBridgeThread, mode
         // switching is later work.
         tenant->lookaheadWorkerThread = std::make_unique<LookaheadWorkerThread> (*tenant->controlBlock, tenant->hostedPluginPtr,
-                                                                                  instanceIdToSpawn, tenant->pluginAccessLock);
+                                                                                  instanceIdToSpawn, tenant->pluginAccessLock, tenant->isCorrupted);
         tenant->lookaheadWorkerThread->startThread (juce::Thread::Priority::low);
 
         loadPluginIntoTenant (*tenant, pluginPath, block->hostSampleRate, block->hostBlockSize);
@@ -2072,6 +2911,91 @@ private:
                 tenant.controlBlock->paramValueRevision.fetch_add (1, std::memory_order_release);
         }
 
+        // Step 39 (Live Telemetry) directive, Task 3: per-tenant treatment
+        // — see the isolated path's own matching comment for the full
+        // reasoning.
+        if (tenant.hostedPlugin != nullptr)
+        {
+            const int32_t currentLatency = tenant.hostedPlugin->getLatencySamples();
+
+            if (currentLatency != tenant.controlBlock->pluginLatencySamples.load (std::memory_order_relaxed))
+                tenant.controlBlock->pluginLatencySamples.store (currentLatency, std::memory_order_relaxed);
+        }
+
+        // Step 39 (A/B Testing) directive, Task 4: per-tenant treatment —
+        // see the isolated path's own matching comment for the full
+        // reasoning.
+        if (tenant.controlBlock->liveRestoreRequested.load (std::memory_order_acquire) && tenant.hostedPlugin != nullptr)
+        {
+            int attempts = 0;
+            bool acquired = false;
+
+            while (! (acquired = ! tenant.pluginAccessLock.test_and_set (std::memory_order_acquire)))
+            {
+                if (++attempts > 100)
+                    break;
+                juce::Thread::sleep (1);
+            }
+
+            if (acquired)
+            {
+                const int64_t size = tenant.controlBlock->liveRestoreStateSize.load (std::memory_order_relaxed);
+
+                if (size > 0 && size <= CrateIPC::ControlBlock::maxStateChunkBytes)
+                {
+                    // Store A/B Amnesia Fix (Step 53) directive: same
+                    // bounded liveRestoreLock spin as the isolated path —
+                    // see ControlBlock::liveRestoreLock's own doc comment.
+                    int lockAttempts = 0;
+                    bool lockAcquired = false;
+
+                    while (! (lockAcquired = ! tenant.controlBlock->liveRestoreLock.test_and_set (std::memory_order_acquire)))
+                    {
+                        if (++lockAttempts > 100)
+                            break;
+                        juce::Thread::sleep (1);
+                    }
+
+                    if (lockAcquired)
+                    {
+                        // Step 51 (Silent Crash Hardening) directive: see the
+                        // isolated path's own matching comment for the full
+                        // reasoning — this matters MORE here, since a shared
+                        // host's process crash takes every OTHER tenant down
+                        // with it (see serviceTenant()'s own doc comment on
+                        // that blast radius), making this exact call site the
+                        // highest-value place in the whole file for this fix.
+                        if (sehSetStateInformation (tenant.hostedPlugin.get(), tenant.controlBlock->liveRestoreStateData, (int) size))
+                            logToFile ("CrateSandbox (Shared Host): DIAG A/B — tenant " + tenant.instanceId
+                                           + " applied live restore, " + juce::String (size) + " bytes.");
+                        else
+                            logToFile ("CrateSandbox (Shared Host): setStateInformation() faulted (caught via SEH) for tenant "
+                                           + tenant.instanceId + " during live restore — that tenant's plugin instance may be unstable.");
+
+                        tenant.controlBlock->liveRestoreLock.clear (std::memory_order_release);
+                    }
+                    else
+                    {
+                        logToFile ("CrateSandbox (Shared Host): DIAG A/B — tenant " + tenant.instanceId
+                                       + " liveRestoreLock contended, skipping this restore request rather than risking a torn buffer.");
+                    }
+                }
+                else
+                {
+                    logToFile ("CrateSandbox (Shared Host): DIAG A/B — tenant " + tenant.instanceId
+                                   + " restore request seen but size invalid (" + juce::String (size) + " bytes), skipped.");
+                }
+
+                tenant.pluginAccessLock.clear (std::memory_order_release);
+                tenant.controlBlock->liveRestoreRequested.store (false, std::memory_order_release);
+            }
+            else
+            {
+                logToFile ("CrateSandbox (Shared Host): DIAG A/B — tenant " + tenant.instanceId
+                               + " restore request seen but pluginAccessLock contended, retrying next tick.");
+            }
+        }
+
         // Step 23 (Geometry Polish & Dynamic Resize) directive: once an
         // editor already exists, keep republishing its CURRENT size every
         // tick rather than only once at creation — a resizable VST3 editor
@@ -2091,18 +3015,42 @@ private:
             // Step 24 (Editor View Recovery Guard) directive: see the
             // isolated path's own matching comment for the full evidence
             // trail and reasoning.
+            //
+            // Step 57 (The Liar's Tolerance) directive: per-tenant
+            // treatment — see the isolated path's own matching comment for
+            // the full MAutoDynamicEq/Melda evidence trail and reasoning.
             if (! tenant.editorHasEverResized)
             {
-                if (currentWidth != tenant.initialEditorWidth || currentHeight != tenant.initialEditorHeight)
+                if (std::abs (currentWidth - tenant.initialEditorWidth) > recoveryGuardTolerancePixels
+                        || std::abs (currentHeight - tenant.initialEditorHeight) > recoveryGuardTolerancePixels)
                     tenant.editorHasEverResized = true;
             }
-            else if (currentWidth == tenant.initialEditorWidth && currentHeight == tenant.initialEditorHeight)
+            else if (std::abs (currentWidth - tenant.initialEditorWidth) <= recoveryGuardTolerancePixels
+                         && std::abs (currentHeight - tenant.initialEditorHeight) <= recoveryGuardTolerancePixels)
             {
-                logToFile ("CrateSandbox (Shared Host): tenant " + tenant.instanceId + " editor view snapped back to its exact creation size ("
+                logToFile ("CrateSandbox (Shared Host): tenant " + tenant.instanceId + " editor view snapped back to within "
+                               + juce::String (recoveryGuardTolerancePixels) + "px of its creation size ("
                                + juce::String (tenant.initialEditorWidth) + "x" + juce::String (tenant.initialEditorHeight)
+                               + ", currently " + juce::String (currentWidth) + "x" + juce::String (currentHeight)
                                + ") after being resized away from it — recreating the editor to recover.");
 
+                // Step 55 (The Liar's Penalty) directive: per-tenant
+                // treatment — see the isolated path's own matching branch
+                // for the full VoxDucker evidence trail and reasoning.
+                tenant.editorProvedFixedSizeLiar = true;
+                tenant.controlBlock->fixedSizeLiarDetected.store (true, std::memory_order_release);
+                tenant.controlBlock->editorCanResize.store (false, std::memory_order_relaxed);
+                tenant.controlBlock->pluginMinWidth.store  (tenant.initialEditorWidth,  std::memory_order_relaxed);
+                tenant.controlBlock->pluginMinHeight.store (tenant.initialEditorHeight, std::memory_order_relaxed);
+                tenant.controlBlock->pluginMaxWidth.store  (tenant.initialEditorWidth,  std::memory_order_relaxed);
+                tenant.controlBlock->pluginMaxHeight.store (tenant.initialEditorHeight, std::memory_order_relaxed);
+
+                logToFile ("CrateSandbox (Shared Host): LIAR'S PENALTY — tenant " + tenant.instanceId
+                               + " forced FIXED-SIZE at " + juce::String (tenant.initialEditorWidth) + "x"
+                               + juce::String (tenant.initialEditorHeight) + ".");
+
                 tenant.controlBlock->windowHandleReady.store (false, std::memory_order_release);
+
                 tenant.activeEditor.reset();
                 return;
             }
@@ -2129,25 +3077,38 @@ private:
                 }
                #endif
 
+                // Step 69 (Watchdog Strike System) directive: per-tenant
+                // treatment — see the isolated path's own matching comment
+                // for the full reasoning.
                 if (! editorResponsive)
+                    ++tenant.editorHealthCheckStrikes;
+                else
+                    tenant.editorHealthCheckStrikes = 0;
+
+                if (tenant.editorHealthCheckStrikes >= editorHealthCheckStrikeThreshold)
                 {
                     logToFile ("CrateSandbox (Shared Host): tenant " + tenant.instanceId
-                                   + " editor HWND stopped responding to Win32 messages (SendMessageTimeout "
-                                     "failed) — recreating editor view to recover. Audio processing untouched.");
+                                   + " editor HWND failed " + juce::String (tenant.editorHealthCheckStrikes)
+                                   + " consecutive Win32 responsiveness checks (SendMessageTimeout) — recreating "
+                                     "editor view to recover. Audio processing untouched.");
+
+                    // Step 74 (The Flight Recorder) directive: per-tenant
+                    // treatment — see the isolated path's own matching
+                    // comment for the full reasoning.
+                    FlightRecorder::getInstance().flushToDisk ("CHILD_EDITOR_HEALTHCHECK_STRIKE_LIMIT");
 
                     tenant.controlBlock->windowHandleReady.store (false, std::memory_order_release);
+
+                    tenant.editorHealthCheckStrikes = 0;
                     tenant.activeEditor.reset();
                     return;
                 }
             }
 
-            if (currentWidth > 0 && currentHeight > 0
-                && (currentWidth  != tenant.controlBlock->windowWidth.load (std::memory_order_relaxed)
-                    || currentHeight != tenant.controlBlock->windowHeight.load (std::memory_order_relaxed)))
-            {
-                tenant.controlBlock->windowWidth.store (currentWidth, std::memory_order_relaxed);
-                tenant.controlBlock->windowHeight.store (currentHeight, std::memory_order_release);
-            }
+            // Step 68 (Outbound Throttle & Lifecycle Integrity) directive,
+            // Task 1: per-tenant treatment — see the isolated path's own
+            // matching comment for the full reasoning.
+            tenant.publishEditorSizeIfChanged (currentWidth, currentHeight);
 
             // Step 24 (DPI Awareness & Multi-Monitor Scaling) directive:
             // same per-tenant treatment as the isolated path's own
@@ -2161,39 +3122,28 @@ private:
                 tenant.activeEditor->setScaleFactor (requestedScale);
             }
 
-            // Step 36 (The Fixed-Size Lock) directive: same per-tenant
-            // backstop as the isolated path's own timerCallback() — see
-            // that method's matching comment for the full reasoning.
-            if (! tenant.controlBlock->editorCanResize.load (std::memory_order_relaxed))
-                return;
-
-            // Step 34 (Bidirectional Resize) directive: same per-tenant
-            // treatment as the isolated path's own timerCallback() — see
-            // that method's matching comment for the full reasoning.
-            const int hostWidth  = tenant.controlBlock->hostRequestedWidth.load (std::memory_order_relaxed);
-            const int hostHeight = tenant.controlBlock->hostRequestedHeight.load (std::memory_order_relaxed);
-
-            if (hostWidth > 0 && hostHeight > 0
-                && (hostWidth != tenant.lastAppliedHostWidth || hostHeight != tenant.lastAppliedHostHeight))
-            {
-                tenant.lastAppliedHostWidth  = hostWidth;
-                tenant.lastAppliedHostHeight = hostHeight;
-
-                // Step 35 directive: see the isolated path's own matching
-                // comment — plain setBounds() bypasses VST3PluginWindow's
-                // self-attached constrainer entirely.
-                if (auto* constrainer = tenant.activeEditor->getConstrainer())
-                    constrainer->setBoundsForComponent (tenant.activeEditor.get(), { 0, 0, hostWidth, hostHeight },
-                                                        false, false, true, true);
-                else
-                    tenant.activeEditor->setBounds (0, 0, hostWidth, hostHeight);
-            }
-
+            // Step 65 (Pure Follower Architecture) directive: per-tenant
+            // treatment — see the isolated path's own matching comment.
+            // The Host never publishes a resize request to a tenant any
+            // more; it's a pure follower of whatever size the tenant's own
+            // editor reports above.
             return;
         }
 
         if (! tenant.controlBlock->windowHandleRequested.load (std::memory_order_acquire))
             return;
+
+        // Step 79 (Pre-Emptive Native Parenting) directive: per-tenant
+        // treatment — see the isolated path's own matching check for the
+        // full reasoning.
+        const int64_t hostSlotHwndValue = tenant.controlBlock->hostSlotHwndValue.load (std::memory_order_acquire);
+
+        if (hostSlotHwndValue == 0)
+        {
+            logToFile ("CrateSandbox (Shared Host): window handle requested for tenant " + tenant.instanceId
+                           + ", but the Host hasn't published its Airlock slot yet — waiting.");
+            return;
+        }
 
         if (tenant.hostedPlugin == nullptr || ! tenant.hostedPlugin->hasEditor())
         {
@@ -2212,14 +3162,77 @@ private:
         // Step 36 (The Fixed-Size Lock) directive, Task 1: MUST be read
         // BEFORE setResizable(true, true) below — see the isolated path's
         // matching comment for the full reasoning.
-        const bool tenantEditorCanResize = tenant.activeEditor->isResizable();
+        // Step 55 (The Liar's Penalty) directive: per-tenant treatment —
+        // see the isolated path's own matching line for the reasoning.
+        const bool tenantEditorCanResize = ! tenant.editorProvedFixedSizeLiar
+                                              && ! tenant.controlBlock->forceFixedSizeEditor.load (std::memory_order_relaxed)
+                                              && tenant.activeEditor->isResizable();
 
         // Step 23 directive: was setResizable(false, false) — see the
         // isolated path's matching comment for the full "One-Way Zoom
         // Trap" history and why this is now safe to re-enable.
         tenant.activeEditor->setResizable (true, true);
-        tenant.activeEditor->addToDesktop (0);
+
+        // Step 88 (Probe Before Attach) directive — per-tenant treatment,
+        // see the isolated path's own matching comment for the full
+        // reasoning (this probe was firing a live, on-screen 10000x10000
+        // resize on the already-attached, already-visible editor, which
+        // is what actually corrupted Melda's own rendering — not a
+        // missing onSize() call). Moved to run BEFORE addToDesktop(),
+        // while the editor still has no peer and isn't shown to the user
+        // at all.
+        if (tenantEditorCanResize)
+        {
+            if (auto* probeConstrainer = tenant.activeEditor->getConstrainer())
+            {
+                const int creationWidth  = tenant.activeEditor->getWidth();
+                const int creationHeight = tenant.activeEditor->getHeight();
+
+                probeConstrainer->setBoundsForComponent (tenant.activeEditor.get(), { 0, 0, 1, 1 }, false, false, true, true);
+                const int probedMinWidth  = tenant.activeEditor->getWidth();
+                const int probedMinHeight = tenant.activeEditor->getHeight();
+
+                probeConstrainer->setBoundsForComponent (tenant.activeEditor.get(), { 0, 0, 10000, 10000 }, false, false, true, true);
+                const int probedMaxWidth  = tenant.activeEditor->getWidth();
+                const int probedMaxHeight = tenant.activeEditor->getHeight();
+
+                probeConstrainer->setBoundsForComponent (tenant.activeEditor.get(), { 0, 0, creationWidth, creationHeight }, false, false, true, true);
+
+                tenant.controlBlock->pluginMinWidth.store  (probedMinWidth,  std::memory_order_relaxed);
+                tenant.controlBlock->pluginMinHeight.store (probedMinHeight, std::memory_order_relaxed);
+                tenant.controlBlock->pluginMaxWidth.store  (probedMaxWidth,  std::memory_order_relaxed);
+                tenant.controlBlock->pluginMaxHeight.store (probedMaxHeight, std::memory_order_relaxed);
+
+                logToFile ("CrateSandbox (Shared Host): tenant " + tenant.instanceId + " probed plugin resize limits — min="
+                               + juce::String (probedMinWidth) + "x" + juce::String (probedMinHeight)
+                               + ", max=" + juce::String (probedMaxWidth) + "x" + juce::String (probedMaxHeight) + ".");
+            }
+        }
+        else
+        {
+            tenant.controlBlock->pluginMinWidth.store  (tenant.activeEditor->getWidth(),  std::memory_order_relaxed);
+            tenant.controlBlock->pluginMinHeight.store (tenant.activeEditor->getHeight(), std::memory_order_relaxed);
+            tenant.controlBlock->pluginMaxWidth.store  (tenant.activeEditor->getWidth(),  std::memory_order_relaxed);
+            tenant.controlBlock->pluginMaxHeight.store (tenant.activeEditor->getHeight(), std::memory_order_relaxed);
+        }
+
+        // Step 79 (Pre-Emptive Native Parenting) directive: per-tenant
+        // treatment — see the isolated path's own matching call site for
+        // the full reasoning.
+        auto* tenantHostSlotHwnd = (void*) (intptr_t) hostSlotHwndValue;
+        tenant.activeEditor->addToDesktop (0, tenantHostSlotHwnd);
+
+        // Step 80 (Geometry Snap) directive — REMOVED: per-tenant
+        // treatment — see the isolated path's own matching comment for
+        // why the getWidth()/getHeight() -> setSize() re-assertion this
+        // step originally added here was provably inert.
         tenant.activeEditor->setVisible (true);
+
+        // Step 81 (Event-Driven Geometry Publish) directive: per-tenant
+        // treatment — see the isolated path's own matching call site and
+        // TenantContext's own componentMovedOrResized() for the full
+        // reasoning.
+        tenant.activeEditor->addComponentListener (&tenant);
 
         if (auto* peer = tenant.activeEditor->getPeer())
         {
@@ -2282,12 +3295,6 @@ private:
     // ControlBlock::displayScale1000's own default (1000 = 100%).
     float lastAppliedDisplayScale = 1.0f;
 
-    // Step 34 (Bidirectional Resize) directive: last host-requested size
-    // actually applied via activeEditor->setBounds() — same "only act on
-    // genuine change" guard as lastAppliedDisplayScale above.
-    int lastAppliedHostWidth  = 0;
-    int lastAppliedHostHeight = 0;
-
     // Step 24 (Editor View Recovery Guard) directive: a real, evidence-
     // gathered MeldaProduction quirk — after a fast interactive resize
     // burst via the plugin's OWN corner grip (Step 23's mechanism, proven
@@ -2308,10 +3315,73 @@ private:
     int initialEditorHeight = 0;
     bool editorHasEverResized = false;
 
+    // Step 55 (The Liar's Penalty) directive: latched TRUE, forever, the
+    // moment the Recovery Guard catches this plugin ignoring an applied
+    // resize (snapping back to creation size despite claiming
+    // canResize=true — VoxDucker, proven via direct log evidence). Every
+    // editor (re)creation checks this FIRST: when set, the probe is
+    // skipped entirely and canResize=false + min==max==creation size are
+    // published instead, regardless of anything the plugin's own lying
+    // canResize()/checkSizeConstraint() claim. Never reset — a liar
+    // caught once stays convicted for this process's whole lifetime (and
+    // via ControlBlock::fixedSizeLiarDetected -> PluginHealthRegistry,
+    // for all future sessions too).
+    bool editorProvedFixedSizeLiar = false;
+
+    // Step 57 (The Liar's Tolerance) directive: shared by BOTH the
+    // isolated Recovery Guard check (above) and serviceTenant()'s
+    // per-tenant version — a single named constant rather than a magic
+    // number duplicated in two places. 15px, matching the user's own
+    // directive: wide enough to absorb Melda-style internal grid
+    // rounding (MAutoDynamicEq's own false-positive conviction, proven
+    // via QA), narrow enough that a genuine liar (VoxDucker: probed max
+    // 10000x10000, real resize 824x824, snapped back to EXACTLY 800x800
+    // — nowhere close to a rounding error) still gets caught.
+    static constexpr int recoveryGuardTolerancePixels = 15;
+
     // Step 35 (Editor View Recovery Guard v2) directive, Task 3: throttle
     // gate for the SendMessageTimeout responsiveness ping — see its own
     // call site's doc comment.
     juce::uint32 lastEditorHealthCheckMs = 0;
+
+    // Step 69 (Watchdog Strike System) directive — QA finding: a single
+    // SendMessageTimeout failure is not proof of a genuine hang. An
+    // aggressive, continuous drag of the plugin's own internal resize
+    // handle can legitimately keep a heavy UI recalculation (Melda's own
+    // EQ-grid redraw, proven via this session's own logging) busy on this
+    // SAME message thread for a stretch approaching the probe's own
+    // 500ms timeout — busy, not dead. Requiring
+    // editorHealthCheckStrikeThreshold CONSECUTIVE failures (at this
+    // check's own 1-second cadence, several full seconds of genuine
+    // unresponsiveness) before concluding "hung," and resetting the
+    // count to 0 on the very next successful probe, is what actually
+    // tells "busy" apart from "dead." A single shared constant — there's
+    // nothing tenant-specific about how many strikes should be tolerated,
+    // only the running count itself (see TenantContext's own
+    // editorHealthCheckStrikes).
+    static constexpr int editorHealthCheckStrikeThreshold = 3;
+    int editorHealthCheckStrikes = 0;
+
+    // Step 68 (Outbound Throttle & Lifecycle Integrity) directive, Task 1
+    // — QA finding: rapidly, continuously dragging the plugin's own
+    // internal resize handle republishes a new size to shared memory
+    // every tick the mismatch condition holds. This class's own Timer
+    // already runs at CrateIPC::livenessCheckIntervalMs (20ms/50Hz),
+    // comfortably inside a safe band on paper, but a fixed nominal
+    // interval alone isn't a real guarantee against the SAME wall-clock-
+    // drift hazard already proven and fixed on the HOST side
+    // (CrateSandboxBridge's own Step 66 follower throttle): if Melda's
+    // own internal grid recalculation (triggered synchronously, on THIS
+    // SAME message thread, by the plugin's native handle responding to
+    // raw OS mouse-move messages) ever makes a single tick's own work run
+    // long, this Timer has no idle gap left to wait out and the next tick
+    // fires immediately back-to-back. A single shared constant (there's
+    // nothing tenant-specific about WHAT rate is safe, only WHEN each
+    // tenant last actually wrote — see TenantContext's own
+    // lastOutboundReportMs) capped to ~30Hz, matching the Host's own
+    // follower throttle so neither side of the pipe can flood the other.
+    static constexpr int outboundReportThrottleMs = 33;
+    juce::uint32 lastOutboundReportMs = 0;
 
     // Step 11 directive: guards EVERY call into hostedPlugin from either
     // AudioBridgeThread's processBlock() or StateExtractionThread's
@@ -2320,6 +3390,11 @@ private:
     // shared by reference with both threads (constructed here so it
     // outlives both).
     std::atomic_flag pluginAccessLock = ATOMIC_FLAG_INIT;
+
+    // Step 52 (The Anti-Zombie Auto-Respawn Protocol) directive: isolated-
+    // mode counterpart to TenantContext::isCorrupted — shared by reference
+    // into this process's own AudioBridgeThread and LookaheadWorkerThread.
+    std::atomic<bool> isCorrupted { false };
 
     std::unique_ptr<StateExtractionThread> stateExtractionThread;
     std::unique_ptr<StateChangeListener> stateChangeListener;

@@ -4,7 +4,7 @@
 #include "PianoRollExpressionLane.h"
 #include "PianoRollArticulationLane.h"
 #include "CrateMidiInspectorComponent.h"
-#include "CrateColors.h"
+#include "CrateTheme.h"
 
 using namespace CratePianoRoll;
 

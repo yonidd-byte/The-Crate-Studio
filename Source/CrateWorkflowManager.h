@@ -75,6 +75,21 @@ public:
     // themselves before calling, same as showInstrumentMenu() already does.
     bool loadPluginOntoTrack (const juce::PluginDescription& description, te::Track& targetTrack, int insertIndex);
 
+    /** Strict Track Hierarchy (MASTER_ARCHITECTURE 3.5) — true if `track`
+        is a MIDI/Instrument track, i.e. a legal host for an instrument/
+        synth plugin. This app has no separate engine-level track type (TE
+        itself doesn't either — see ArrangementComponent's own
+        trackHasInstrument() doc comment): a MIDI track IS an AudioTrack
+        that carries an instrument (isSynth() — FourOsc seed or a loaded
+        VSTi) or holds MIDI clips (so a MIDI track whose instrument was
+        deleted is still recognized as MIDI, not silently reclassified as
+        an Audio track). Master/folder/return tracks are never instrument
+        hosts. Static + public so every UI drop target
+        (isInterestedInDragSource) applies the SAME verdict at hover time
+        that loadPluginOntoTrack() enforces authoritatively at drop time —
+        one definition, no drift. */
+    static bool trackAcceptsInstrument (te::Track& track);
+
     /** Deletes currentSelectedTrack and clears the selection. Wrapped in a single
         Undo transaction. No-op if nothing is selected. */
     void deleteSelectedTrack();

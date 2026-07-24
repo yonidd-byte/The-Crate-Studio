@@ -117,6 +117,36 @@ public:
         return false;
     }
 
+    // Step 55 (The Liar's Penalty) directive: a plugin that claims
+    // canResize=true (and accepts arbitrary probe candidates through
+    // checkSizeConstraint()) but IGNORES actually-applied sizes,
+    // snapping back to its creation size every time — proven live by
+    // VoxDucker's own log (probed max 10000x10000, every real resize
+    // snapped back to 800x800, endlessly re-triggering the Editor View
+    // Recovery Guard). Same persistence reasoning as unsafeForLookahead
+    // above: a plugin that lied about resizability yesterday still lies
+    // today, and every future load should treat it as fixed-size from
+    // the very first frame instead of rediscovering the lie through
+    // another user-visible black-void loop.
+    void recordFixedSizeLiar (const juce::String& pluginUID)
+    {
+        const juce::ScopedLock sl (lock);
+
+        auto entry = findOrCreateEntry (pluginUID);
+        entry->setProperty ("forcedFixedSize", true);
+        save();
+    }
+
+    bool isForcedFixedSize (const juce::String& pluginUID) const
+    {
+        const juce::ScopedLock sl (lock);
+
+        if (auto entry = findEntry (pluginUID))
+            return (bool) entry->getProperty ("forcedFixedSize");
+
+        return false;
+    }
+
     // Step 22 (The Profiling Database / The Warden) directive: resolved by
     // the CHILD's own scan (juce::PluginDescription::manufacturerName —
     // see ControlBlock::vendorName's own doc comment for why it's never

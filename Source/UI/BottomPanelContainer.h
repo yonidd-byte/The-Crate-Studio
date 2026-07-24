@@ -3,7 +3,7 @@
 #include <JuceHeader.h>
 
 #include "MasterAnalyzerComponent.h"
-#include "CrateColors.h"
+#include "CrateTheme.h"
 #include "CrateDesignSystem.h"
 
 /**

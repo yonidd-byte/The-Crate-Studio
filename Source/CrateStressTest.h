@@ -20,6 +20,8 @@
 #if JUCE_DEBUG
 
 #include <tracktion_engine/tracktion_engine.h>
+#include <functional>
+#include <memory>
 
 /**
     Internal QA stress harness — generates a worst-case session (100 tracks,
@@ -45,7 +47,29 @@ public:
     // rather than the single-instance case every step up to now tested.
     static void runSandboxScaleTest (tracktion::engine::Edit& edit);
 
+    // Step 74 (The Flight Recorder) directive, Task 2: loads a real, heavy
+    // third-party plugin (hardcoded machine-local path — see the .cpp's
+    // own doc comment), opens its actual editor (exercising SandboxAirlock's
+    // reparenting path for real), and floods it with genuine parameter
+    // changes plus rapid display-scale toggling for 10 seconds — a
+    // deliberate, worst-case reproduction of the exact failure pattern
+    // this whole session traced. Physically absent from a Release build,
+    // same JUCE_DEBUG guard as every other method here — never reachable
+    // outside a Debug build, by construction, not by a runtime flag
+    // someone could forget to flip off.
+    static void runAirlockDeadlockStressTest (tracktion::engine::Edit& edit);
+
 private:
+    // Step 74 directive: the self-perpetuating flood tick — public-facing
+    // entry point above is runAirlockDeadlockStressTest(); this is its own
+    // internal recursive step, exposed only because the self-holding
+    // std::function it reschedules itself through needs a free function
+    // to call back into (see the .cpp's own doc comment on why this can't
+    // be a pure local lambda without the same shared_ptr-of-itself
+    // ownership dance this file's other polling helpers already use).
+    static void runAirlockDeadlockStressTickInternal (tracktion::engine::Plugin::Ptr bridgePlugin, double startMs,
+                                                       std::shared_ptr<std::function<void()>> selfHolder);
+
     CrateStressTest() = delete; // static-only utility, never instantiated
 };
 

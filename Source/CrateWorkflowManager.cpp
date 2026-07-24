@@ -8,6 +8,52 @@
 
 namespace
 {
+    // Step 60 (4K/HiDPI Protection for Broken Giants) directive: a
+    // CURATED SEED LIST, not an exhaustive authority — disclosed honestly,
+    // same spirit as this codebase's own PluginHealthRegistry doc
+    // comments about its identifier caveats. There is no general way to
+    // KNOW in advance which third-party plugin's own internal HiDPI/
+    // scaling engine will break under a high-density display; this is a
+    // manually-maintained list of ones already known to (the user's own
+    // named example: iZotope Ozone, and its own suite-mates, which share
+    // the same underlying UI framework) — expand it as new offenders are
+    // actually observed, don't treat its absence as proof a plugin is
+    // safe. Matched against EITHER the plugin's own name or its
+    // manufacturer, case-insensitively, substring match (a plugin's
+    // reported name often includes a version/edition suffix the vendor
+    // string doesn't).
+    bool isKnownBrokenGiantOnHiDPI (const juce::PluginDescription& description)
+    {
+        static const juce::StringArray knownOffenders { "ozone", "izotope", "neutron", "nectar", "rx " };
+
+        const auto name   = description.name.toLowerCase();
+        const auto vendor = description.manufacturerName.toLowerCase();
+
+        for (auto& offender : knownOffenders)
+            if (name.contains (offender) || vendor.contains (offender))
+                return true;
+
+        return false;
+    }
+
+    // Step 60 directive: "4K" as a DPI-SCALE signal, not a raw pixel-
+    // resolution one — a scale factor is what actually determines whether
+    // a plugin's own UI framework has to cope with high-density rendering
+    // at all (a 4K panel running at 100% OS scale never exercises the
+    // exact code path that breaks; a 1440p panel scaled to 150-200% DOES)
+    // — 2.0 is the common "4K at 200%" Windows default, used as the
+    // threshold. Reads the PRIMARY display only: this check runs at
+    // plugin-INSERTION time, before any window (and therefore before any
+    // real per-monitor placement) exists, so there is no more specific
+    // display to ask yet.
+    bool isHighDensityDisplay()
+    {
+        if (auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+            return display->scale >= 2.0;
+
+        return false;
+    }
+
     // Same custom ValueTree property AutomationLaneComponent writes to/reads from.
     // Duplicated here (rather than including a UI header from this engine-level
     // class) since prepareAutomationForSave()'s validation pass only needs to check
@@ -161,6 +207,19 @@ void CrateWorkflowManager::loadPluginToSelectedTrack (const juce::PluginDescript
     if (edit == nullptr)
         return;
 
+    // Strict Track Hierarchy (MASTER_ARCHITECTURE 3.5): same gate as
+    // loadPluginOntoTrack()'s own — the Browser double-click path lands
+    // here, NOT there, and QA proved an instrument could slip onto an
+    // Audio track through exactly this hole. Checked BEFORE instantiation.
+    if (description.isInstrument && ! trackAcceptsInstrument (*audioTrack))
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+            "Cannot Load Instrument on an Audio Track",
+            "\"" + description.name + "\" is an instrument — it can only be loaded onto a MIDI/Instrument track. "
+            "Select a MIDI track first, or create one.");
+        return;
+    }
+
     edit->getUndoManager().beginNewTransaction ("Load Plugin: " + description.name);
 
     auto plugin = instantiateExternalPlugin (description);
@@ -188,6 +247,34 @@ void CrateWorkflowManager::loadPluginToSelectedTrack (const juce::PluginDescript
     }
 }
 
+bool CrateWorkflowManager::trackAcceptsInstrument (te::Track& track)
+{
+    // Strict Track Hierarchy (MASTER_ARCHITECTURE 3.5) — see this method's
+    // own doc comment in the header. Only a real AudioTrack can ever host
+    // an instrument (Master/folder/return tracks never can), and among
+    // AudioTracks, only one this app already treats as MIDI: carrying an
+    // instrument (te::Plugin::isSynth() — the SAME engine-native check
+    // ArrangementComponent's trackHasInstrument() established as this
+    // app's one true track-type test, rather than an app-level flag that
+    // could drift from what the engine thinks the track renders), or
+    // holding MIDI clips (covers a MIDI track whose instrument was
+    // deleted — its clips still prove what kind of track it is).
+    auto* audioTrack = dynamic_cast<te::AudioTrack*> (&track);
+
+    if (audioTrack == nullptr)
+        return false;
+
+    for (auto* p : audioTrack->pluginList)
+        if (p != nullptr && p->isSynth())
+            return true;
+
+    for (auto* c : audioTrack->getClips())
+        if (dynamic_cast<te::MidiClip*> (c) != nullptr)
+            return true;
+
+    return false;
+}
+
 bool CrateWorkflowManager::loadPluginOntoTrack (const juce::PluginDescription& description, te::Track& targetTrack, int insertIndex)
 {
     // See loadPluginToSelectedTrack()'s identical tripwire above.
@@ -204,6 +291,24 @@ bool CrateWorkflowManager::loadPluginOntoTrack (const juce::PluginDescription& d
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
             "Cannot Load Instrument on Master",
             "\"" + description.name + "\" is an instrument — the Master track only accepts effects/mastering plugins.");
+        return false;
+    }
+
+    // Strict Track Hierarchy (MASTER_ARCHITECTURE 3.5) — QA caught a
+    // Synthesizer ("Ting") successfully loading onto an Audio Track. This
+    // is the AUTHORITATIVE gate: every load path (drag-drop from any UI
+    // component, menu picks, double-clicks) funnels through this method,
+    // so even a drop target whose own isInterestedInDragSource validation
+    // is missing or bypassed can never actually instantiate an instrument
+    // onto an Audio track. Checked BEFORE instantiation, same as the
+    // Master guard above — a rejected drop never even spins up the
+    // (potentially expensive, sandbox-process-spawning) plugin instance.
+    if (description.isInstrument && ! trackAcceptsInstrument (targetTrack))
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+            "Cannot Load Instrument on an Audio Track",
+            "\"" + description.name + "\" is an instrument — it can only be loaded onto a MIDI/Instrument track. "
+            "Create a MIDI track (or drop onto an existing one) instead.");
         return false;
     }
 
@@ -242,10 +347,43 @@ te::Plugin::Ptr CrateWorkflowManager::instantiateExternalPlugin (const juce::Plu
     auto plugin = SandboxManager::getInstance().createSandboxPlugin (*edit, description);
 
     if (plugin == nullptr)
+    {
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
             "Plugin Load Failed",
             "\"" + description.name + "\" could not be instantiated. It may have been "
             "moved, deleted, or be incompatible with this build (bitness/format).");
+    }
+    else if (auto* bridge = dynamic_cast<CrateSandboxBridge*> (plugin.get()))
+    {
+        // Zero-Dropout Bridge directive (Step 52): opt in HERE, at the one
+        // real, user-facing plugin-insertion door this function's own doc
+        // comment already establishes — deliberately NOT set inside
+        // SandboxManager::createSandboxPlugin() itself, since
+        // CrateStressTest.cpp calls that SAME factory directly for its own
+        // round-trip-timing verification and must keep observing the
+        // direct synchronous IPC path unchanged (see
+        // setAutoLookaheadEnabled()'s own doc comment in
+        // CrateSandboxBridge.h for the exact regression this avoids).
+        bridge->setAutoLookaheadEnabled (true);
+
+        // Step 60 (4K/HiDPI Protection for Broken Giants) directive: same
+        // "one real door" reasoning as setAutoLookaheadEnabled() above —
+        // checked here, once, before this bridge's first launch, using
+        // `description` (already known immediately, no need to wait for
+        // async UID/vendor resolution) and the CURRENT display's scale
+        // (see isHighDensityDisplay()'s own doc comment for why scale,
+        // not raw resolution). Forces this specific bridge into the
+        // Sizing Policy's hardLockdown track and a flat 100% display
+        // scale for the CHILD, regardless of what the plugin itself
+        // claims or what the real monitor scale is.
+        if (isHighDensityDisplay() && isKnownBrokenGiantOnHiDPI (description))
+        {
+            bridge->setForceFixedSizeAndDefaultScale (true);
+            CrateSandboxBridge::logToSharedLog ("4K/HiDPI Protection: \"" + description.name
+                                                     + "\" matches the known-broken-giants list on a high-density display — "
+                                                       "forcing Fixed-Size / Default-Scale mode.");
+        }
+    }
 
     return plugin;
 }

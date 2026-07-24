@@ -3,7 +3,7 @@
 #include "AutomationLaneComponent.h"
 #include "ArrangementLayout.h"
 #include "TheCrateLookAndFeel.h"
-#include "CrateColors.h"
+#include "CrateTheme.h"
 #include "CrateDesignSystem.h"
 #include "FlatGridComboLookAndFeel.h"
 #include "TrackUtils.h"

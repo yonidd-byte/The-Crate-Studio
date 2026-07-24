@@ -1,6 +1,6 @@
 #include "MasterStrip.h"
 #include "TheCrateLookAndFeel.h"
-#include "CrateColors.h"
+#include "CrateTheme.h"
 #include "CrateDesignSystem.h"
 #include "CrateEQThumbnail.h"
 #include "CrateCompressorPopup.h"

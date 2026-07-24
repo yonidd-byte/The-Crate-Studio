@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 
-#include "CrateColors.h"
+#include "CrateTheme.h"
 
 /**
     Hybrid Device & Mixer Paradigm (MASTER_ARCHITECTURE.md) — the Mixer view's

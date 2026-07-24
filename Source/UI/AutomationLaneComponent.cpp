@@ -1,6 +1,6 @@
 #include "AutomationLaneComponent.h"
 #include "TheCrateLookAndFeel.h"
-#include "CrateColors.h"
+#include "CrateTheme.h"
 
 #include <cmath>
 #include <algorithm>

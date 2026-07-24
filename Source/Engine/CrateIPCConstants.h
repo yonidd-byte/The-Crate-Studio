@@ -45,7 +45,15 @@ namespace CrateIPC
     // on top of everything already living in this block (audio buffers,
     // parameter queue, plugin path). Still a single fixed allocation, same
     // "no dynamic growth, ever" contract as before.
-    constexpr int64_t sharedMemoryBytes = 16 * 1024 * 1024; // 16MB, per directive
+    // Step 39 (A/B Testing) directive: bumped from 16MB to 24MB —
+    // liveRestoreStateData adds a THIRD full maxStateChunkBytes (4MB)
+    // buffer alongside stateChunkData and initialStateData (see its own
+    // doc comment for why it's a deliberately separate channel, not a
+    // reuse of either existing one), which no longer fits the original
+    // 16MB budget. Still a single fixed allocation per instance — trivial
+    // against modern machine RAM even with several Cryosleep pool slots
+    // and Shared Sandbox tenants alive at once.
+    constexpr int64_t sharedMemoryBytes = 24 * 1024 * 1024; // 24MB, per Step 39's own directive
 
     // Step 9 (The Multi-Process Scalability Stress Test) directive: THIS
     // FUNCTION USED TO RETURN A FIXED, GLOBAL FILENAME — correct for a
@@ -278,6 +286,20 @@ namespace CrateIPC
         std::atomic<bool> windowHandleReady     { false }; // CHILD sets true once windowHandleValue/windowWidth/windowHeight are valid
         std::atomic<int64_t> windowHandleValue  { 0 };
 
+        // Step 79 (Pre-Emptive Native Parenting) directive: the Airlock's
+        // own slot HWND, published by the PARENT BEFORE windowHandleRequested
+        // is ever set — the CHILD reads this exactly once, before creating
+        // its editor, and passes it straight into
+        // AudioProcessorEditor::addToDesktop(0, (void*) hostSlotHwndValue)
+        // so JUCE's own HWNDComponentPeer calls CreateWindowEx with the
+        // slot as hWndParent from the very FIRST frame — never floating as
+        // its own top-level window and never needing a later SetParent()
+        // call at all. 0 means "no slot published yet"; the CHILD must not
+        // create an editor until this is non-zero (see
+        // CrateSandboxBridge::requestEditorWindow()'s own doc comment for
+        // the PARENT-side half of this ordering contract).
+        std::atomic<int64_t> hostSlotHwndValue { 0 };
+
         // Geometry Sync directive (Step 10.1): the plugin editor's EXACT
         // native size, read directly from the CHILD's own
         // AudioProcessorEditor::getWidth()/getHeight() and sent across the
@@ -328,22 +350,6 @@ namespace CrateIPC
         // the CHILD can no longer reliably find out for itself.
         std::atomic<int32_t> displayScale1000 { 1000 }; // 1000 = 100% = scale factor 1.0f
 
-        // Step 34 (Bidirectional Resize & 4K DPI Sync) directive: the
-        // REVERSE direction from windowWidth/windowHeight above — those are
-        // "here's my current size," CHILD -> PARENT; these are "please BE
-        // this size," PARENT -> CHILD, published whenever the HOST resizes
-        // the embedded editor (e.g. dragging PluginWindow's own resize
-        // corner). The CHILD applies them via activeEditor->setBounds(),
-        // which cascades into the VST3's own IPlugView::onSize() through
-        // JUCE's existing VST3PluginWindow::componentMovedOrResized() —
-        // no new VST3-specific plumbing needed, just telling the CHILD's
-        // own editor Component to become a new size, the same way any
-        // in-process host would. 0 (the default) means "no host resize
-        // request yet," same sentinel convention as windowWidth/Height's
-        // own startup state — never applied by the CHILD until positive.
-        std::atomic<int32_t> hostRequestedWidth  { 0 };
-        std::atomic<int32_t> hostRequestedHeight { 0 };
-
         // Step 11 (Absolute Muscle Memory / Continuous State Sync)
         // directive: TWO separate fixed-size buffers, not one shared —
         // they have different roles/ownership, and reusing one would mean
@@ -378,6 +384,124 @@ namespace CrateIPC
         // its per-launch reset, same dance as pluginPath).
         int64_t initialStateSize = 0;
         char initialStateData[maxStateChunkBytes] {};
+
+        // Step 39 (A/B Testing / Smart Bypass) directive, Task 4: a
+        // DELIBERATELY SEPARATE channel from initialStateData/initialStateSize
+        // above, despite the superficial similarity ("push a state chunk
+        // into the CHILD") — initialStateData is a write-ONCE-before-launch
+        // field consumed exactly once, at process boot, as part of the
+        // crash-resurrection contract (Step 11's "Ghost Reload"); this is a
+        // LIVE, PARENT -> CHILD "restore this chunk into the ALREADY-RUNNING
+        // plugin, right now" request, usable any number of times over a
+        // session (the A/B toggle). Reusing initialStateData for both would
+        // risk a live restore request landing during a crash-restart window
+        // and corrupting the resurrection payload, or vice versa. Consumed
+        // on the CHILD's message-thread-equivalent tick (Main.cpp's own
+        // timerCallback()/serviceTenant()), NEVER the audio thread —
+        // AudioProcessor::setStateInformation() can allocate and do
+        // arbitrarily heavy work, guarded by the SAME pluginAccessLock
+        // bounded-backoff idiom every other cross-thread plugin touch in
+        // this codebase already uses (see StateExtractionThread's own,
+        // Step-37-fixed, version of that exact pattern).
+        std::atomic<bool> liveRestoreRequested { false }; // PARENT sets true to ask; CHILD clears once applied
+        std::atomic<int64_t> liveRestoreStateSize { 0 };
+        char liveRestoreStateData[maxStateChunkBytes] {};
+
+        // Store A/B Amnesia Fix (Step 53) directive: liveRestoreStateData/
+        // liveRestoreStateSize above had NO lock at all, unlike the
+        // PUSH channel's stateChunkData (guarded by stateChunkLock,
+        // immediately below its own doc comment) — a real, unguarded
+        // cross-process race: the PARENT writes this buffer directly from
+        // restoreStateFromSlot(), with no acquire of anything the CHILD
+        // also respects, so a fast A->B->A switch (a second restore
+        // request landing before the CHILD finishes reading the FIRST
+        // one's bytes out of this SAME buffer inside
+        // setStateInformation()) could tear it — the CHILD reading a
+        // buffer that's half slot A's bytes, half slot B's, mid-memcpy.
+        // Same std::atomic_flag spinlock idiom as stateChunkLock: the
+        // PARENT acquires it (message thread, can afford a short bounded
+        // spin) before writing; the CHILD acquires it (already inside its
+        // own pluginAccessLock-guarded block, so this is a second, THIN
+        // lock scoped only to the buffer read itself) before reading.
+        std::atomic_flag liveRestoreLock = ATOMIC_FLAG_INIT;
+
+        // Step 39 (Live Telemetry) directive, Task 3: CHILD -> PARENT,
+        // continuously live (same "latest wins, both sides poll"
+        // convention as windowWidth/Height). pluginLatencySamples is the
+        // hosted plugin's own reported PDC latency (rarely changes after
+        // load, republished on the same "only act on genuine change" cadence
+        // as everything else in this convention family). lastProcessBlockMicros
+        // is the ACTUAL wall-clock time AudioBridgeThread's own
+        // hostedPlugin->processBlock() call took on its most recent
+        // invocation — measured with juce::Time::getMillisecondCounterHiRes()
+        // immediately around that one call, nothing else, so it reflects the
+        // plugin's own real CPU cost, not IPC/spin-wait overhead layered on
+        // top of it (that round-trip figure already exists separately, as
+        // CrateSandboxBridge::maxRoundTripMsObserved).
+        std::atomic<int32_t> pluginLatencySamples { 0 };
+        std::atomic<uint32_t> lastProcessBlockMicros { 0 };
+
+        // Step 52 (The Anti-Zombie Auto-Respawn Protocol) directive: CHILD
+        // -> PARENT, one-shot (set true exactly once, by whichever thread's
+        // SEH catch is the first to see this plugin instance fault; never
+        // cleared by the CHILD — a fresh instance after respawn starts with
+        // a freshly placement-newed ControlBlock, this field's default
+        // false). The PARENT's own timerCallback() polls this exactly like
+        // the existing dspStallDetected/heartbeat-timeout checks — same
+        // "declare dead, recordCrash(), restart or reroute" sequence,
+        // reusing that already-built recovery machinery rather than
+        // inventing a second one. See AudioBridgeThread's own isCorrupted
+        // member for why the audio thread itself never waits for this to
+        // be observed — the mute is immediate and local, this flag is
+        // purely how the PARENT finds out afterward.
+        std::atomic<bool> corruptionDetected { false };
+
+        // Step 52 directive, Task 2 (Strict VST3-Driven Resize Limits):
+        // the CHILD's own best-effort PROBE of the plugin's real minimum/
+        // maximum size, via the ONLY mechanism the VST3 API actually
+        // exposes for this — IPlugView has no direct getMinSize()/
+        // getMaxSize() query, only canResize()/checkSizeConstraint()
+        // (given a CANDIDATE rect, tells you the nearest ALLOWED one) — so
+        // this is populated by probing with an extreme small and an
+        // extreme large candidate once, immediately at editor-creation
+        // time (before the window is ever shown/reparented, so the
+        // resulting flicker is invisible), and reading back whatever the
+        // constrainer actually clamped to. A heuristic against the ONLY
+        // API surface available, not a guaranteed direct query — see
+        // CrateSandboxBridge's own comment on how the PARENT treats these
+        // (a floor/ceiling for setResizeLimits(), combined with the
+        // existing editorCanResize lock for the "can't resize at all"
+        // case). Zero means "not yet probed" / "probe inconclusive."
+        std::atomic<int32_t> pluginMinWidth  { 0 };
+        std::atomic<int32_t> pluginMinHeight { 0 };
+        std::atomic<int32_t> pluginMaxWidth  { 0 };
+        std::atomic<int32_t> pluginMaxHeight { 0 };
+
+        // Step 55 (The Liar's Penalty) directive: CHILD -> PARENT,
+        // one-shot (same edge-trigger convention as corruptionDetected
+        // above — PARENT consumes via exchange(), CHILD never clears it).
+        // Set the moment the Editor View Recovery Guard catches the
+        // hosted plugin IGNORING an applied resize — claiming
+        // canResize=true and accepting huge probe candidates via
+        // checkSizeConstraint(), then snapping straight back to its
+        // creation size when actually resized (VoxDucker, caught via
+        // direct log evidence: probed max 10000x10000, real resize
+        // 824x824 -> snapped back to 800x800). The PARENT records the
+        // conviction into PluginHealthRegistry so all FUTURE loads of
+        // this UID skip the plugin's false claims entirely (see
+        // forceFixedSizeEditor below).
+        std::atomic<bool> fixedSizeLiarDetected { false };
+
+        // Step 55 directive: PARENT -> CHILD, write-once-before-launch
+        // (same category as pluginPath/hostSampleRate — written into the
+        // block before the CHILD ever reads it, at launch/claim/tenant-
+        // spawn time). True when PluginHealthRegistry says this plugin
+        // was ALREADY convicted as a fixed-size liar in a past session:
+        // the CHILD's editor-creation code then skips the resize probe
+        // entirely and publishes canResize=false + min==max==creation
+        // size, never giving the plugin's lying canResize() a second
+        // chance to reopen the resize handle.
+        std::atomic<bool> forceFixedSizeEditor { false };
 
         // Step 12.1 (The Violent Crash Test) directive: a debug/test-only
         // "poison pill" — the PARENT sets this to deliberately trigger a
@@ -469,6 +593,28 @@ namespace CrateIPC
             int32_t numChannels = 0;
             int32_t numSamples  = 0;
             float audioInput[maxChannels * maxSamplesPerBlock] {};
+
+            // Zero-Dropout Bridge directive (Step 52): the DETERMINISTIC
+            // automation-curve value for every synced parameter AT THIS
+            // FUTURE timeline position — sampled on the PARENT's MESSAGE
+            // THREAD (AutomationCurve::getValueAt() is
+            // TRACKTION_ASSERT_MESSAGE_THREAD-guarded, confirmed via direct
+            // source read of tracktion_AutomationCurve.cpp, so it can never
+            // be called from LookaheadProducerThread itself) via
+            // CrateSandboxBridge's own futureParamCache, then copied into
+            // this slot by pumpLookaheadPipeline() (LookaheadProducerThread)
+            // at the same point it fills audioInput. The CHILD's
+            // LookaheadWorkerThread applies these to the hosted plugin's
+            // real parameters BEFORE rendering this block, so recorded/
+            // drawn automation rides along with the pre-rendered future
+            // audio instead of requiring a buffer flush on every automation
+            // tick. numParamValues == 0 is a valid, common state (no synced
+            // parameters yet, or the message thread hasn't caught up
+            // precomputing this far ahead yet) — the CHILD simply leaves
+            // every parameter at whatever it last had for that one block
+            // rather than treating it as an error.
+            int32_t numParamValues = 0;
+            float paramValues[maxSyncedParams] {};
         };
 
         struct LookaheadResultSlot
