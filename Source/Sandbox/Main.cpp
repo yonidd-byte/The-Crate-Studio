@@ -904,6 +904,16 @@ public:
             }
         }
 
+        // Step 89 (Fresh Store Fix) directive: PARENT's Store A/B click
+        // asking for a fresh, non-debounced extraction right now — see
+        // ControlBlock::forceStateExtractionRequested's own doc comment
+        // and StateExtractionThread::triggerImmediateExtraction(). Cleared
+        // immediately (this side's job is just to kick the thread off;
+        // the PARENT doesn't wait on this flag at all, only on the
+        // resulting fresh stateChunkData push that follows).
+        if (controlBlock->forceStateExtractionRequested.exchange (false, std::memory_order_acq_rel))
+            stateExtractionThread->triggerImmediateExtraction();
+
         // Step 23 (Geometry Polish & Dynamic Resize) directive: see
         // serviceTenant()'s matching comment — keeps windowWidth/
         // windowHeight live for as long as the editor exists, not just at
@@ -1937,6 +1947,24 @@ private:
             notify();
         }
 
+        // Step 89 (Fresh Store Fix) directive: for an explicit, one-off,
+        // user-initiated request (Store A/B) rather than a plugin's own
+        // rapid-fire updateHostDisplay() burst during a live drag — the
+        // debounce's entire reason for existing (Step 71: coalesce a
+        // burst into one extraction) doesn't apply to a single manual
+        // click, and making the user wait up to debounceMs for their own
+        // explicit "capture this now" action would be a real, perceptible
+        // UX regression, not a safety margin. Sets forceImmediate
+        // alongside the normal trigger fields so run()'s own debounce loop
+        // (below) skips its wait entirely on the very next check.
+        void triggerImmediateExtraction()
+        {
+            lastRequestMs.store (juce::Time::getMillisecondCounter(), std::memory_order_release);
+            extractionRequested.store (true, std::memory_order_release);
+            forceImmediate.store (true, std::memory_order_release);
+            notify();
+        }
+
         void run() override
         {
             while (! threadShouldExit())
@@ -1960,6 +1988,13 @@ private:
                 // this fall through until it actually stops.
                 for (;;)
                 {
+                    // Step 89 (Fresh Store Fix) directive: an explicit
+                    // on-demand request always wins immediately, regardless
+                    // of how recently the debounce window was last reset —
+                    // see triggerImmediateExtraction()'s own doc comment.
+                    if (forceImmediate.exchange (false, std::memory_order_acq_rel))
+                        break;
+
                     const auto elapsedMs = juce::Time::getMillisecondCounter()
                                                 - lastRequestMs.load (std::memory_order_acquire);
 
@@ -2125,6 +2160,10 @@ private:
         // change before pushing a state chunk).
         static constexpr int debounceMs = 500;
         std::atomic<juce::uint32> lastRequestMs { 0 };
+
+        // Step 89 (Fresh Store Fix) directive: see triggerImmediateExtraction()'s
+        // own doc comment.
+        std::atomic<bool> forceImmediate { false };
     };
 
     // The VST3 Edit Hook directive (Step 11): JUCE's own
@@ -2995,6 +3034,11 @@ private:
                                + " restore request seen but pluginAccessLock contended, retrying next tick.");
             }
         }
+
+        // Step 89 (Fresh Store Fix) directive — per-tenant treatment, see
+        // the isolated path's own matching comment for the full reasoning.
+        if (tenant.controlBlock->forceStateExtractionRequested.exchange (false, std::memory_order_acq_rel))
+            tenant.stateExtractionThread->triggerImmediateExtraction();
 
         // Step 23 (Geometry Polish & Dynamic Resize) directive: once an
         // editor already exists, keep republishing its CURRENT size every

@@ -14,7 +14,50 @@ public:
 
     const juce::String getApplicationName() override       { return ProjectInfo::projectName; }
     const juce::String getApplicationVersion() override    { return ProjectInfo::versionString; }
-    bool moreThanOneInstanceAllowed() override              { return false; }
+
+    // Step 96 (The Single-Instance Trap) directive — QA finding, confirmed
+    // by directly monitoring the real scan-child processes JUCE spawns
+    // (not guessing): each one had the exact expected command line
+    // ("--PluginScan:p<pipe>", matching juce::ChildProcessCoordinator's
+    // own getCommandLinePrefix() + PluginScanHelpers::commandLineUID =
+    // "PluginScan"), and each one exited via a completely GRACEFUL
+    // shutdown() — with FlightRecorder's own flush showing ZERO log lines
+    // before the GRACEFUL_SHUTDOWN header, meaning initialise() itself was
+    // NEVER ENTERED for that process (its very first line,
+    // installFlightRecorderCrashHandler()+CRATE_FR_LOG, never ran). No
+    // crash, no access violation, no partial GUI/engine spin-up — this
+    // codebase's own moreThanOneInstanceAllowed()==false was the actual
+    // culprit the whole time: since the MAIN app instance is already
+    // running when a scan-child relaunches the SAME exe, JUCE's own
+    // single-instance lock detects it, forwards the command line to the
+    // EXISTING instance via anotherInstanceStarted(), and the NEW process
+    // exits before initialise() (and therefore our own
+    // startChildProcessPluginScan() check) ever gets a chance to run at
+    // all — this is documented JUCE behaviour
+    // (juce_ApplicationBase.h: "If [moreThanOneInstanceAllowed is] false,
+    // the second instance won't start"), not a bug in JUCE, just a
+    // conflict between it and Tracktion's own out-of-process scanner,
+    // which fundamentally REQUIRES relaunching this same exe as a second,
+    // independent instance to work at all.
+    //
+    // Fix: allow a second instance ONLY when its own command line is
+    // genuinely a scan-worker relaunch (checked via the static
+    // getCommandLineParameters(), safe to call here since it's raw argv
+    // parsing with no dependency on any prior JUCE lifecycle step) —
+    // preserving the original single-main-window protection for a real
+    // user double-launching the app, while finally letting a scan-child's
+    // OWN initialise() actually run. "--PluginScan:" is mirrored here
+    // rather than referencing PluginScanHelpers::commandLineUID directly
+    // — that struct lives in tracktion_PluginScanHelpers.h, an
+    // implementation-only TE header never exposed through the public
+    // tracktion_engine.h umbrella (confirmed: only tracktion_PluginManager.cpp
+    // includes it) — but the exact string is part of TE's own public
+    // contract already, via the PluginManager::startChildProcessPluginScan()
+    // call below, which this mirrors.
+    bool moreThanOneInstanceAllowed() override
+    {
+        return juce::JUCEApplication::getCommandLineParameters().trim().startsWith ("--PluginScan:");
+    }
 
     void initialise (const juce::String& commandLine) override
     {

@@ -425,6 +425,27 @@ namespace CrateIPC
         // lock scoped only to the buffer read itself) before reading.
         std::atomic_flag liveRestoreLock = ATOMIC_FLAG_INIT;
 
+        // Step 89 (Fresh Store Fix) directive — QA finding: "Store A/B"
+        // used to just snapshot CrateSandboxBridge::lastKnownState as-is,
+        // a PASSIVELY-updated cache that only refreshes via the
+        // Continuous State Sync channel (StateExtractionThread's own
+        // debounceMs=500 quiet-period, plus the round trip back over
+        // stateChunkData) — a real user clicking Store within that window
+        // of their own most recent tweak captured whatever STALE state
+        // happened to be cached at that instant, not what the plugin
+        // actually held at click-time. PARENT sets this true to ask the
+        // CHILD for an IMMEDIATE extraction (bypassing the debounce
+        // entirely — see StateExtractionThread::triggerImmediateExtraction()
+        // — since a manual, one-off Store click is exactly the case the
+        // debounce's OWN rapid-fire-coalescing reason for existing doesn't
+        // apply to); CHILD clears it once the fresh extraction has been
+        // kicked off. CrateSandboxBridge::pendingStoreSlotTarget (a
+        // Host-local field, not IPC — only the PARENT needs to remember
+        // which slot it was about to fill) is what actually completes the
+        // store once the resulting FRESH chunk lands back over the
+        // existing stateChunkData/stateChunkAvailable channel.
+        std::atomic<bool> forceStateExtractionRequested { false };
+
         // Step 39 (Live Telemetry) directive, Task 3: CHILD -> PARENT,
         // continuously live (same "latest wins, both sides poll"
         // convention as windowWidth/Height). pluginLatencySamples is the

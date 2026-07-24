@@ -47,6 +47,47 @@ PluginWindow::PluginWindow (te::Plugin& plug)
     // needed to run without a peer already existing on this platform.
     addToDesktop (getDesktopWindowStyleFlags());
 
+   #if JUCE_WINDOWS
+    // Step 90 (Z-Order Lock) directive — QA finding: clicking/dragging a
+    // macro control in the Host's own main Device Chain window was
+    // burying the floating plugin window behind it. Normal Win32
+    // behaviour for two independent top-level windows with no declared
+    // relationship — activating one raises it above every OTHER
+    // unrelated top-level window, plugin windows included.
+    //
+    // juce::Component::setAlwaysOnTop() (WS_EX_TOPMOST) would fix the
+    // reported symptom but over-corrects: it pins this window above
+    // EVERY app on the whole desktop, not just this one — a plugin
+    // window still floating over a browser or a reference PDF after
+    // alt-tabbing away is a different, equally real annoyance most
+    // DAWs deliberately avoid. The actual Win32 idiom for "always stays
+    // above MY OWN app's main window specifically, and nothing else" is
+    // window OWNERSHIP (GWLP_HWNDPARENT) — distinct from WS_CHILD
+    // parenting (an owned window still moves, resizes, and minimizes
+    // independently) — which the OS itself enforces automatically
+    // whenever the owner window is activated, which is exactly the
+    // trigger described in the bug report.
+    //
+    // The main app window is found via JUCE's own TopLevelWindow
+    // registry rather than threading a reference through this
+    // constructor — the first registered TopLevelWindow that ISN'T
+    // another PluginWindow is, by this app's own architecture (one
+    // MainWindow, N plugin windows), the main window.
+    for (int i = 0; i < juce::TopLevelWindow::getNumTopLevelWindows(); ++i)
+    {
+        auto* candidate = juce::TopLevelWindow::getTopLevelWindow (i);
+
+        if (candidate == nullptr || candidate == this || dynamic_cast<PluginWindow*> (candidate) != nullptr)
+            continue;
+
+        if (auto* mainPeer = candidate->getPeer())
+            if (auto* myPeer = getPeer())
+                SetWindowLongPtr ((HWND) myPeer->getNativeHandle(), GWLP_HWNDPARENT, (LONG_PTR) (HWND) mainPeer->getNativeHandle());
+
+        break;
+    }
+   #endif
+
     getConstrainer()->setMinimumOnscreenAmounts (0x10000, 50, 30, 50);
     setResizeLimits (100, 50, 4000, 4000);
 

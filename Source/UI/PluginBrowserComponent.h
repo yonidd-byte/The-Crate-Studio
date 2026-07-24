@@ -33,10 +33,26 @@ public:
 private:
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void loadSelectedRow();
+    void startParallelScan();
 
     CrateWorkflowManager& workflow;
     juce::PluginListComponent pluginListComponent;
     juce::TextButton loadButton { "Load Selected Plugin" };
+
+    // Step 97 (Concurrent OOP Dispatcher) directive: PIMPL — the real
+    // implementation constructs multiple genuinely independent
+    // te::PluginScanHelpers::CustomScanner instances (one per ThreadPool
+    // worker, never shared), which requires including
+    // tracktion_PluginScanHelpers.h directly — an implementation-only TE
+    // header never exposed through the public tracktion_engine.h umbrella
+    // (confirmed: only tracktion_PluginManager.cpp includes it). Kept out
+    // of this header entirely via an incomplete type so nothing else in
+    // the app needs that include.
+    class ConcurrentScanner;
+    std::shared_ptr<ConcurrentScanner> concurrentScanner;
+
+    juce::TextButton parallelScanButton { "Scan All Formats (Parallel)" };
+    juce::Label scanStatusLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginBrowserComponent)
 };

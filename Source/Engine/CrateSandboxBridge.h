@@ -1855,12 +1855,47 @@ public:
     // initialise(), never touched from the audio thread).
     double getCachedSampleRate() const noexcept { return cachedSampleRate; }
 
-    // Step 39 (A/B Testing) directive, Task 4: "Store A"/"Store B" —
-    // snapshots the SAME lastKnownState the Continuous State Sync channel
-    // (Step 11's "Muscle Memory") already keeps continuously fresh, into
-    // one of two RAM-only slots. No disk I/O anywhere in this path — the
-    // instant, click-to-click swap the user actually wants.
+    // Step 89 (Fresh Store Fix) directive — QA finding: this used to just
+    // snapshot lastKnownState directly, right here, synchronously. That
+    // cache is only ever refreshed by the Continuous State Sync channel,
+    // which is itself debounced (StateExtractionThread's own 500ms quiet
+    // period) — a real user tweaking a parameter and then clicking Store
+    // within that window (an entirely normal, fast workflow) captured
+    // whatever STALE state happened to be cached at click-time, not what
+    // the plugin actually held. The SECOND Store click in the user's own
+    // report ("tweak, click Store A again, it fails to overwrite") landed
+    // inside exactly that window — lastKnownState hadn't caught up yet,
+    // so the "overwrite" was real, it just overwrote slot A with the SAME
+    // stale bytes as the first store, making it look like nothing
+    // happened. storeCurrentStateToSlot() itself was never guarded
+    // against overwriting — there was simply nothing fresh yet TO store.
+    //
+    // Fix: a Store click no longer trusts the passive cache at all — it
+    // asks the CHILD for an immediate, non-debounced extraction (see
+    // ControlBlock::forceStateExtractionRequested's own doc comment) and
+    // remembers which slot to fill via pendingStoreSlotTarget; the actual
+    // slot write happens in the state-chunk consumer (below, in the main
+    // timerCallback()) the moment that FRESH chunk lands, guaranteeing
+    // the captured bytes reflect the plugin's real state at click-time
+    // (plus one short extraction round trip), not an arbitrarily-stale
+    // cache.
     void storeCurrentStateToSlot (char whichSlot)
+    {
+        pendingStoreSlotTarget = whichSlot;
+
+        if (auto* block = controlBlock.load (std::memory_order_acquire))
+            block->forceStateExtractionRequested.store (true, std::memory_order_release);
+
+        logEvent ("DIAG A/B: Store " + juce::String (whichSlot) + " clicked — requested a fresh extraction "
+                      "before capturing (no longer trusting the passive Continuous Sync cache).");
+    }
+
+    // Step 89 directive: the actual write into stateSlotA/B — factored out
+    // so it can run from either storeCurrentStateToSlot() directly (no
+    // pending fresh-fetch machinery needed if lastKnownState is already
+    // being written to for some other reason) or, as of this step, from
+    // the state-chunk consumer once the requested fresh chunk arrives.
+    void performStoreToSlot (char whichSlot)
     {
         auto& slot     = (whichSlot == 'A') ? stateSlotA : stateSlotB;
         auto& hasState = (whichSlot == 'A') ? hasStateSlotA : hasStateSlotB;
@@ -1869,7 +1904,7 @@ public:
         hasState = slot.getSize() > 0;
 
         logEvent ("DIAG A/B: stored slot " + juce::String (whichSlot) + " — "
-                      + juce::String (slot.getSize()) + " bytes captured from lastKnownState.");
+                      + juce::String (slot.getSize()) + " bytes captured from a freshly-requested extraction.");
     }
 
     bool hasStateSlot (char whichSlot) const noexcept
@@ -4457,6 +4492,25 @@ private:
                     lastKnownState = juce::MemoryBlock (stateBlock->stateChunkData, size);
                     stateBlock->stateChunkAvailable.store (false, std::memory_order_relaxed);
                     logEvent ("Received plugin state chunk (" + juce::String ((int) size) + " bytes).");
+
+                    // Step 89 (Fresh Store Fix) directive: this chunk is
+                    // exactly what storeCurrentStateToSlot() asked the
+                    // CHILD for — lastKnownState above is now guaranteed
+                    // fresh (this specific chunk was produced by the
+                    // forced, non-debounced extraction, not whatever
+                    // happened to already be cached), so completing the
+                    // actual slot write HERE, not at click-time, is what
+                    // fixes the staleness. If a restore was pending when
+                    // THIS chunk would otherwise have landed, the ! restorePending
+                    // guard above defers the whole branch to a later tick —
+                    // pendingStoreSlotTarget simply stays set until then,
+                    // so the eventual store still happens, just slightly
+                    // later, never lost.
+                    if (pendingStoreSlotTarget != 0)
+                    {
+                        performStoreToSlot (pendingStoreSlotTarget);
+                        pendingStoreSlotTarget = 0;
+                    }
                 }
 
                 stateBlock->stateChunkLock.clear (std::memory_order_release);
@@ -5070,6 +5124,14 @@ private:
     // meaningful state).
     juce::MemoryBlock stateSlotA, stateSlotB;
     bool hasStateSlotA = false, hasStateSlotB = false;
+
+    // Step 89 (Fresh Store Fix) directive: 0 means "no Store click
+    // outstanding." Set by storeCurrentStateToSlot(), consumed and
+    // cleared by the state-chunk consumer in timerCallback() the instant
+    // the freshly-requested chunk actually lands. Host-local only — never
+    // crosses the IPC boundary, unlike forceStateExtractionRequested
+    // (which is what actually asks the CHILD to produce that chunk).
+    char pendingStoreSlotTarget = 0;
 
     // Step 9.1 (Scatter-Gather & Yield Refactor) directive: the handoff
     // between dispatchToSandbox() and this SAME instance's own matching
